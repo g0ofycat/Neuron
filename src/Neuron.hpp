@@ -55,7 +55,7 @@ class Neuron {
         // ====== INIT ======
 
         void initialize_weights(double** layerWeights, size_t out_neurons, size_t in_neurons) {
-            double std_dev = std::sqrt(2.0 / static_cast<double>(in_neurons)); // xavier 4 sigmoid: std::sqrt(1.0 / static_cast<double>(in_neurons)); currently using He initialization for relu
+            double std_dev = std::sqrt(2.0 / static_cast<double>(in_neurons)); // xavier for sigmoid: std::sqrt(1.0 / static_cast<double>(in_neurons)); currently using He initialization for relu
             std::random_device rd;
             std::mt19937 gen(rd());
             std::normal_distribution<> d(0.0, std_dev);
