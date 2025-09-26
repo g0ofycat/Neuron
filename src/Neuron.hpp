@@ -10,6 +10,7 @@
 class Neuron {
     private:
         int inputNeurons, hiddenNeurons, hiddenLayers, outputNeurons;
+        double dropout_rate;
         double*** weights;
         double**  biases;
         std::vector<std::vector<double>> activations;
@@ -55,7 +56,7 @@ class Neuron {
         // ====== INIT ======
 
         void initialize_weights(double** layerWeights, size_t out_neurons, size_t in_neurons) {
-            double std_dev = std::sqrt(2.0 / static_cast<double>(in_neurons)); // xavier for sigmoid: std::sqrt(1.0 / static_cast<double>(in_neurons)); currently using He initialization for relu
+            double std_dev = std::sqrt(1.0 / static_cast<double>(in_neurons)); // xavier (sigmoid): std::sqrt(1.0 / static_cast<double>(in_neurons)); he (relu): std::sqrt(2.0 / static_cast<double>(in_neurons));
             std::random_device rd;
             std::mt19937 gen(rd());
             std::normal_distribution<> d(0.0, std_dev);
@@ -75,8 +76,9 @@ class Neuron {
         @param hiddenNeurons: number of hidden neurons per layer
         @param hiddenLayers: number of hidden layers
         @param outputNeurons: number of output neurons
+        @param dropout_rate: Dropout rate during training
         */
-        Neuron(int inputNeurons, int hiddenNeurons, int hiddenLayers, int outputNeurons): inputNeurons(inputNeurons), hiddenNeurons(hiddenNeurons), hiddenLayers(hiddenLayers), outputNeurons(outputNeurons){
+        Neuron(int inputNeurons, int hiddenNeurons, int hiddenLayers, int outputNeurons, double dropout_rate): inputNeurons(inputNeurons), hiddenNeurons(hiddenNeurons), hiddenLayers(hiddenLayers), outputNeurons(outputNeurons), dropout_rate(dropout_rate){
             weights = new double**[hiddenLayers + 1];
             biases  = new double*[hiddenLayers + 1];
             
@@ -132,10 +134,13 @@ class Neuron {
         */
         std::vector<double> forward_propagate(const std::vector<double>& input, bool apply_dropout = false) {
             if (input.size() != static_cast<size_t>(inputNeurons)) {
-                throw std::invalid_argument("Input size doesn't match network input layer size");
+                throw std::invalid_argument("Input size doesn't match network inputNeurons size");
             }
 
             activations[0] = input;
+            std::random_device rd;
+            std::mt19937 gen(rd());
+            std::bernoulli_distribution drop_dist(1.0 - dropout_rate);
 
             for (int layer = 0; layer <= hiddenLayers; ++layer) {
                 size_t in_size  = (layer == 0) ? inputNeurons : hiddenNeurons;
@@ -151,7 +156,15 @@ class Neuron {
                     if (layer == hiddenLayers) {
                         activations[layer + 1][j] = z;
                     } else {
-                        activations[layer + 1][j] = ReLU(z);
+                        double a = Sigmoid(z);
+                        if (apply_dropout) {
+                            if (!drop_dist(gen))
+                                a = 0.0;
+                            else
+                                a /= (1.0 - dropout_rate);
+                        }
+
+                        activations[layer + 1][j] = a;
                     }
                 }
             }
@@ -167,7 +180,7 @@ class Neuron {
         @param learning_rate: Learning rate for weight updates
         */
         void back_propagate(const std::vector<double>& input, const std::vector<double>& input_target, double learning_rate) {
-            forward_propagate(input);
+            forward_propagate(input, true);
 
             std::vector<std::vector<double>> deltas(hiddenLayers + 1);
 
@@ -190,7 +203,7 @@ class Neuron {
                     for (size_t j = 0; j < next_size; ++j) {
                         error += deltas[layer + 1][j] * weights[layer + 1][j][i];
                     }
-                    deltas[layer][i] = error * ReLU_derivative(z_values[layer][i]);
+                    deltas[layer][i] = error * Sigmoid_derivative(z_values[layer][i]);
                 }
             }
 
@@ -264,7 +277,7 @@ class Neuron {
         @param input: Input vector for prediction
         */
         std::vector<double> predict(const std::vector<double>& input) {
-            return forward_propagate(input, false);
+            return forward_propagate(input);
         }
 
         /*
@@ -273,7 +286,7 @@ class Neuron {
         @param input: Input vector for prediction
         */
         std::vector<double> predict_classes(const std::vector<double>& input) {
-            return Softmax(forward_propagate(input, false));
+            return Softmax(forward_propagate(input));
         }
 
         // ====== MODEL ======

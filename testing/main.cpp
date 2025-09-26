@@ -1,11 +1,4 @@
-# Neuron
-
-fast lightweight general purposed library for supervised training of deep neural nets
-
-## basic implementation
-
-```cpp
-#include "path/to/Neuron.hpp"
+#include "../src/Neuron.hpp"
 
 int main() {
     Neuron nn(3, 5, 2, 2, 0.01);
@@ -40,4 +33,3 @@ int main() {
 
     return 0;
 }
-```
