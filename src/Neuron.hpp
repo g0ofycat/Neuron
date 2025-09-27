@@ -216,7 +216,7 @@ class Neuron {
                 deltas[i].resize(out_size);
             }
 
-            for (size_t i = 0; i < outputNeurons; ++i) {
+            for (size_t i = 0; i < static_cast<size_t>(outputNeurons); ++i) {
                 double error = activations[hiddenLayers + 1][i] - input_target[i];
                 deltas[hiddenLayers][i] = error * 1.0;
             }
