@@ -1,6 +1,6 @@
 # Neuron
 
-fast lightweight general purposed library for supervised training of deep neural nets
+fast lightweight general purposed library for supervised training of deep neural nets. handles 1d-3d tensors along with the ability to save and load models (.bin files)
 
 ## basic implementation
 
@@ -11,23 +11,26 @@ int main() {
     // inputNeurons, hiddenNeurons, hiddenLayers, outputNeurons, dropout_rate
     Neuron nn(3, 5, 2, 2, 0.01);
 
-    std::vector<Tensor> input = {
-        Tensor({3}).assign_data({0.1, 0.2, 0.3}),
-        Tensor({3}).assign_data({0.4, 0.5, 0.6}),
-        Tensor({3}).assign_data({0.7, 0.8, 0.9})
+    Tensor input = {
+        {0.1, 0.2, 0.3},
+        {0.4, 0.5, 0.6},
+        {0.7, 0.8, 0.9}
     };
 
-    std::vector<Tensor> target = {
-        Tensor({2}).assign_data({1.0, 0.0}),
-        Tensor({2}).assign_data({0.0, 1.0}),
-        Tensor({2}).assign_data({1.0, 0.0})
+    Tensor target = {
+        {1.0, 0.0},
+        {0.0, 1.0},
+        {1.0, 0.0}
     };
 
     // input, target, epochs, learning_rate, batch_size
     nn.train(input, target, 10000, 0.1, 64);
 
-    Tensor test_input({3});
-    test_input.data = {0.1, 0.2, 0.3};
+    // nn.save_model("model_data.bin");
+
+    // nn.load_model("model_data.bin");
+
+    Tensor test_input = {0.1, 0.2, 0.3};
 
     Tensor out_tensor = nn.predict(test_input);
 

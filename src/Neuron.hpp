@@ -22,12 +22,34 @@ class Tensor {
 
         Tensor() = default;
 
-        Tensor(std::initializer_list<size_t> dims) : shape(dims) {
+        // 1d tensor support (vector)
+        Tensor(std::initializer_list<double> list) {
+            data.assign(list.begin(), list.end());
+            shape = { list.size() };
+            compute_strides();
+        }
+
+        // 2d tensor support (matrix)
+        Tensor(std::initializer_list<std::initializer_list<double>> list2d) {
+            size_t rows = list2d.size();
+            if (rows == 0) { shape = {0,0}; return; }
+            size_t cols = list2d.begin()->size();
+            for (auto& row : list2d) {
+                if (row.size() != cols) throw std::invalid_argument("All rows must have same length");
+                data.insert(data.end(), row.begin(), row.end());
+            }
+            shape = {rows, cols};
+            compute_strides();
+        }
+
+        // creating tensors with specific dimensions (filled with zeros); Tensor({3, 4, 5})
+        explicit Tensor(std::initializer_list<size_t> dims): shape(dims) {
             compute_strides();
             data.assign(numel(), 0.0);
         }
-
-        Tensor(const std::vector<size_t>& dims) : shape(dims) {
+        
+        // used for dynamic shape creation; Tensor({3, 4, 5})
+        Tensor(const std::vector<size_t>& dims): shape(dims) {
             compute_strides();
             data.assign(numel(), 0.0);
         }
@@ -41,6 +63,24 @@ class Tensor {
             std::normal_distribution<> d(mean, stddev);
             for (auto &v : t.data) v = d(gen);
             return t;
+        }
+
+        static Tensor extract_row(const Tensor& tensor, size_t row_idx) {
+            if (tensor.shape.size() != 2) {
+                throw std::invalid_argument("extract_row: Tensor must be 2D");
+            }
+            
+            size_t row_size = tensor.shape[1];
+            size_t start_idx = row_idx * row_size;
+            
+            std::vector<double> row_data(tensor.data.begin() + start_idx, tensor.data.begin() + start_idx + row_size);
+            
+            Tensor result;
+            result.data = row_data;
+            result.shape = {row_data.size()};
+            result.compute_strides();
+            
+            return result;
         }
 
         size_t ndim() const { return shape.size(); }
@@ -353,36 +393,52 @@ class Neuron {
         @param learning_rate: Learning rate for weight updates
         @param batch_size: Size of each training batch
         */
-        void train(const std::vector<Tensor>& inputs, const std::vector<Tensor>& targets, int epochs, double learning_rate, int batch_size) {
-            if (inputs.size() != targets.size()) {
-                std::cerr << "train(): Input and target sizes don't match!\n";
+        void train(const Tensor& inputs, const Tensor& targets, int epochs, double learning_rate, int batch_size) {            
+            if (inputs.shape.size() != 2 || targets.shape.size() != 2) {
+                std::cerr << "train(): Inputs and targets must be 2D tensors (batch_size x features)\n";
                 return;
             }
-
-            std::vector<size_t> indices(inputs.size());
+            
+            size_t num_samples = inputs.shape[0];
+            if (num_samples != targets.shape[0]) {
+                std::cerr << "train(): Number of input samples (" << num_samples 
+                        << ") doesn't match target samples (" << targets.shape[0] << ")\n";
+                return;
+            }
+            
+            size_t input_features = inputs.shape[1];
+            size_t output_features = targets.shape[1];
+            
+            std::vector<size_t> indices(num_samples);
             std::iota(indices.begin(), indices.end(), 0);
             std::mt19937 gen{std::random_device{}()};
-
+            
             for (int epoch = 0; epoch < epochs; ++epoch) {
                 std::shuffle(indices.begin(), indices.end(), gen);
                 double total_loss = 0.0;
-
-                for (size_t i = 0; i < inputs.size(); i += batch_size) {
-                    size_t end = std::min(i + batch_size, inputs.size());
+                
+                for (size_t i = 0; i < num_samples; i += batch_size) {
+                    size_t end = std::min(i + batch_size, num_samples);
+                    
                     for (size_t j = i; j < end; ++j) {
-                        size_t idx = indices[j];
-                        back_propagate(inputs[idx], targets[idx], learning_rate);
-                        Tensor out = forward_propagate(inputs[idx]);
+                        size_t sample_idx = indices[j];
 
-                        Tensor flat_t = targets[idx];
-                        flat_t.reshape({flat_t.numel()});
-                        total_loss += mean_squared_error(out.data, flat_t.data);
+                        Tensor input_sample = Tensor::extract_row(inputs, sample_idx);
+                        Tensor target_sample = Tensor::extract_row(targets, sample_idx);
+                        
+                        back_propagate(input_sample, target_sample, learning_rate);
+                        Tensor out = forward_propagate(input_sample);
+                        
+                        Tensor flat_target = target_sample;
+                        flat_target.reshape({flat_target.numel()});
+                        total_loss += mean_squared_error(out.data, flat_target.data);
                     }
                 }
-                if (epoch % 100 == 0)
-                    std::cout << "Epoch " << epoch
-                            << ", Loss: " << total_loss / inputs.size()
-                            << std::endl;
+                
+                if (epoch % 100 == 0) {
+                    std::cout << "Epoch " << epoch 
+                            << " | Loss: " << total_loss / num_samples << std::endl;
+                }
             }
         }
 
