@@ -14,8 +14,9 @@ int main() {
         {0.0, 1.0}, 
         {1.0, 0.0}
       };
-
-    nn.train(input, target, 1000, 0.01, 64);
+    
+    // input, target, epochs, learning_rate, batch_size
+    nn.train(input, target, 10000, 0.1, 64);
     
     // nn.save_model("../training/model_data.bin");
 

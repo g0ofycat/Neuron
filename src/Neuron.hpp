@@ -1,6 +1,7 @@
 #pragma once
 
 #include <iostream>
+#include <numeric>
 #include <vector>
 #include <random>
 #include <cmath>
@@ -30,9 +31,8 @@ class Neuron {
             return 1.0 / (1.0 + std::exp(-x));
         }
 
-        double Sigmoid_derivative(double x) {
-            double s = Sigmoid(x);
-            return s * (1.0 - s);
+        double Sigmoid_derivative(double a) {
+            return a * (1.0 - a);
         }
 
         // ====== MISC ======
@@ -51,6 +51,33 @@ class Neuron {
                 exp_z[i] /= sum_exp;
             
             return exp_z;
+        }
+
+        double mean_squared_error(const std::vector<double>& output, const std::vector<double>& target) {
+            if (output.size() != target.size()) {
+                throw std::invalid_argument("Output and target sizes do not match for MSE calculation.");
+            }
+
+            double sum = 0.0;
+            for (size_t i = 0; i < output.size(); ++i) {
+                double diff = output[i] - target[i];
+                sum += diff * diff;
+            }
+            return sum / static_cast<double>(output.size());
+        }
+
+        double cross_entropy_loss(const std::vector<double>& output, const std::vector<double>& target) {
+            if (output.size() != target.size()) {
+                throw std::invalid_argument("Output and target sizes do not match for Cross-Entropy calculation.");
+            }
+
+            double loss = 0.0;
+
+            for (size_t i = 0; i < output.size(); ++i) {
+                loss -= target[i] * std::log(output[i] + 1e-15);
+            }
+
+            return loss / static_cast<double>(output.size());
         }
 
         // ====== INIT ======
@@ -203,7 +230,7 @@ class Neuron {
                     for (size_t j = 0; j < next_size; ++j) {
                         error += deltas[layer + 1][j] * weights[layer + 1][j][i];
                     }
-                    deltas[layer][i] = error * Sigmoid_derivative(z_values[layer][i]);
+                    deltas[layer][i] = error * Sigmoid_derivative(activations[layer + 1][i]);
                 }
             }
 
@@ -256,10 +283,8 @@ class Neuron {
                         back_propagate(input[idx], input_target[idx], learning_rate);
                         
                         auto output = forward_propagate(input[idx]);
-                        for (size_t k = 0; k < output.size(); ++k) {
-                            double diff = output[k] - input_target[idx][k];
-                            total_loss += diff * diff;
-                        }
+
+                        total_loss += mean_squared_error(output, input_target[idx]);
                     }
                 }
                 
