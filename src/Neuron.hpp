@@ -12,6 +12,8 @@
 #include <functional>
 #include <algorithm>
 
+// ====== TENSOR CLASS ======
+
 class Tensor {
     public:
         std::vector<size_t> shape;
@@ -57,10 +59,10 @@ class Tensor {
         }
 
         size_t index_of(const std::vector<size_t>& idx) const {
-            if (idx.size() != shape.size()) throw std::out_of_range("index rank mismatch");
+            if (idx.size() != shape.size()) throw std::out_of_range("index_of(): Index rank mismatch");
             size_t offs = 0;
             for (size_t i = 0; i < idx.size(); ++i) {
-                if (idx[i] >= shape[i]) throw std::out_of_range("index out of range");
+                if (idx[i] >= shape[i]) throw std::out_of_range("index_of(): Index out of range");
                 offs += idx[i] * strides[i];
             }
             return offs;
@@ -85,13 +87,13 @@ class Tensor {
 
         void reshape(const std::vector<size_t>& new_shape) {
             size_t new_num = std::accumulate(new_shape.begin(), new_shape.end(), (size_t)1, std::multiplies<size_t>());
-            if (new_num != numel()) throw std::invalid_argument("reshape size mismatch");
+            if (new_num != numel()) throw std::invalid_argument("reshape(): Reshape size mismatch");
             shape = new_shape;
             compute_strides();
         }
 
         Tensor sum(size_t axis) const {
-            if (axis >= ndim()) throw std::out_of_range("axis out of range");
+            if (axis >= ndim()) throw std::out_of_range("sum(): Axis out of range");
             std::vector<size_t> out_shape = shape;
             out_shape.erase(out_shape.begin() + axis);
             Tensor out(out_shape.empty() ? std::vector<size_t>{1} : out_shape);
@@ -114,10 +116,10 @@ class Tensor {
         }
 
         static Tensor matmul2D(const Tensor& A, const Tensor& B) {
-            if (A.ndim() != 2 || B.ndim() != 2) throw std::invalid_argument("matmul2D requires 2D tensors");
+            if (A.ndim() != 2 || B.ndim() != 2) throw std::invalid_argument("matmul2D(): matmul2D requires 2D tensors");
             size_t m = A.shape[0], k = A.shape[1];
             size_t k2 = B.shape[0], n = B.shape[1];
-            if (k != k2) throw std::invalid_argument("matmul shape mismatch");
+            if (k != k2) throw std::invalid_argument("matmul2D(): matmul shape mismatch");
             Tensor C({m,n});
             for (size_t i=0;i<m;++i) {
                 for (size_t j=0;j<n;++j) {
@@ -131,6 +133,8 @@ class Tensor {
 
         void fill(double v) { std::fill(data.begin(), data.end(), v); }
 };
+
+// ====== NEURON CLASS ======
 
 class Neuron {
     private:
@@ -210,10 +214,10 @@ class Neuron {
         /*
         Neuron(): Neuron constructor
 
-        @param inputNeurons: number of input neurons
-        @param hiddenNeurons: number of hidden neurons per layer
-        @param hiddenLayers: number of hidden layers
-        @param outputNeurons: number of output neurons
+        @param inputNeurons: Number of input neurons
+        @param hiddenNeurons: Number of hidden neurons per layer
+        @param hiddenLayers: Number of hidden layers
+        @param outputNeurons: Number of output neurons
         @param dropout_rate: Dropout rate during training
         */
         explicit Neuron(int inputNeurons, int hiddenNeurons, int hiddenLayers, int outputNeurons, double dropout_rate): inputNeurons(inputNeurons), hiddenNeurons(hiddenNeurons), hiddenLayers(hiddenLayers), outputNeurons(outputNeurons), dropout_rate(dropout_rate){
@@ -250,16 +254,16 @@ class Neuron {
         /*
         forward_propagate(): Performs forward propagation through the network
 
-        @param input: Input vector to the network
+        @param input: Input tensor to the network
         @param apply_dropout: Whether to apply dropout during forward propagation
-        @return: Output vector from the network
+        @return: Output tensor from the network
         */
         Tensor forward_propagate(const Tensor& input, bool apply_dropout=false) {
             Tensor flat = input;
             flat.reshape({flat.numel()});
             
             if (input.numel() != inputNeurons) 
-                throw std::invalid_argument("bad input size");
+                throw std::invalid_argument("forward_propagate(): Input size does not match number of input neurons.");
 
             for (size_t i=0; i<inputNeurons; ++i) 
                 activations[0](i) = input.data[i];
@@ -301,8 +305,8 @@ class Neuron {
         /*
         back_propagate(): Performs backpropagation and updates weights and biases
 
-        @param input: Input vector to the network
-        @param input_target: Target output vector for the input
+        @param input: Input tensor to the network
+        @param input_target: Target output tensor for the input
         @param learning_rate: Learning rate for weight updates
         */
         void back_propagate(const Tensor& input, const Tensor& target, double learning_rate) {
@@ -343,15 +347,15 @@ class Neuron {
         /*
         train(): Trains the neural network using the provided dataset
 
-        @param input: Vector of input vectors for training
-        @param input_target: Vector of target output vectors for training
+        @param input: Tensor of input vectors for training
+        @param input_target: Tensor of target output vectors for training
         @param epochs: Number of training epochs
         @param learning_rate: Learning rate for weight updates
         @param batch_size: Size of each training batch
         */
         void train(const std::vector<Tensor>& inputs, const std::vector<Tensor>& targets, int epochs, double learning_rate, int batch_size) {
             if (inputs.size() != targets.size()) {
-                std::cerr << "Error: Input and target sizes don't match!\n";
+                std::cerr << "train(): Input and target sizes don't match!\n";
                 return;
             }
 
@@ -385,16 +389,16 @@ class Neuron {
         // ====== PREDICTION METHODS ======
         
         /*
-        predict(): Makes a prediction for a single input vector
+        predict(): Makes a prediction for a tensor
 
-        @param input: Input vector for prediction
+        @param input: Input tensor for prediction
         */
         Tensor predict(const Tensor& input) {
             return forward_propagate(input);
         }
 
         /*
-        predict_classes(): Makes a class prediction for a single input vector (Softmax output)
+        predict_classes(): Makes a class prediction for a tensor (Softmaxxed output)
 
         @param input: Input vector for prediction
         */
@@ -407,12 +411,12 @@ class Neuron {
         /*
         save_model(): Saves the model data to a file
 
-        @param filename: Name of the file to save the model to
+        @param filepath: Path of the file to save the model to
         */
-        void save_model(const std::string &filename) {
-            std::ofstream file(filename, std::ios::binary);
+        void save_model(const std::string &filepath) {
+            std::ofstream file(filepath, std::ios::binary);
             if (!file.is_open()) {
-                std::cerr << "Error: Could not open file for writing: " << filename << std::endl;
+                std::cerr << "save_model(): Could not open file for writing: " << filepath << std::endl;
                 return;
             }
             
@@ -433,18 +437,18 @@ class Neuron {
             }
             
             file.close();
-            std::cout << "Model saved to: " << filename << std::endl;
+            std::cout << "save_model(): Model saved to: " << filepath << std::endl;
         }
 
         /*
         load_model(): Loads the model data from a file
 
-        @param filename: Name of the file to load the model from
+        @param filepath: Path of the file to load the model from
         */
-        void load_model(const std::string &filename) {
-            std::ifstream file(filename, std::ios::binary);
+        void load_model(const std::string &filepath) {
+            std::ifstream file(filepath, std::ios::binary);
             if (!file.is_open()) {
-                std::cerr << "Error: Could not open file for reading: " << filename << std::endl;
+                std::cerr << "load_model(): Could not open file for reading: " << filepath << std::endl;
                 return;
             }
             
@@ -456,7 +460,7 @@ class Neuron {
             
             if (loaded_input != inputNeurons || loaded_hidden != hiddenNeurons || 
                 loaded_layers != hiddenLayers || loaded_output != outputNeurons) {
-                std::cerr << "Error: Model architecture doesn't match current network!" << std::endl;
+                std::cerr << "load_model(): Model architecture doesn't match current network!" << std::endl;
                 file.close();
                 return;
             }
@@ -476,7 +480,7 @@ class Neuron {
             }
             
             file.close();
-            std::cout << "Model loaded from: " << filename << std::endl;
+            std::cout << "load_model(): Model loaded from: " << filepath << std::endl;
         }
 
         // ====== UTILITY METHODS ======
