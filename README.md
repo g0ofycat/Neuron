@@ -45,3 +45,48 @@ int main() {
     return 0;
 }
 ```
+
+## pybind11 bindings if u wanna use it in python
+
+```cpp
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+#include "path/to/Neuron.hpp"
+
+namespace py = pybind11;
+
+PYBIND11_MODULE(Neuron, m) {
+    py::class_<Tensor>(m, "Tensor")
+        .def(py::init<>())
+        .def(py::init<std::initializer_list<double>>())
+        .def(py::init<std::initializer_list<std::initializer_list<double>>>())
+        .def(py::init<const std::vector<size_t>&>())
+        .def_static("zeros", [](const std::vector<size_t>& dims){ return Tensor(dims); })
+        .def_static("random_normal", &Tensor::random_normal, 
+                    py::arg("dims"), py::arg("mean")=0.0, py::arg("stddev")=1.0)
+        .def_static("extract_row", &Tensor::extract_row)
+        .def("ndim", &Tensor::ndim)
+        .def("numel", &Tensor::numel)
+        .def("reshape", &Tensor::reshape)
+        .def("sum", &Tensor::sum)
+        .def("matmul2D", &Tensor::matmul2D)
+        .def("fill", &Tensor::fill)
+        .def("__getitem__", [](const Tensor &t, std::vector<size_t> idx){ return t.at(idx); })
+        .def("__setitem__", [](Tensor &t, std::vector<size_t> idx, double v){ t.at(idx)=v; })
+        .def_readwrite("data", &Tensor::data)
+        .def_readwrite("shape", &Tensor::shape);
+
+    py::class_<Neuron>(m, "Neuron")
+        .def(py::init<int,int,int,int,double>(),
+             py::arg("inputNeurons"), py::arg("hiddenNeurons"), py::arg("hiddenLayers"),
+             py::arg("outputNeurons"), py::arg("dropout_rate"))
+        .def("forward_propagate", &Neuron::forward_propagate, py::arg("input"), py::arg("apply_dropout")=false)
+        .def("back_propagate", &Neuron::back_propagate)
+        .def("train", &Neuron::train)
+        .def("predict", &Neuron::predict)
+        .def("predict_classes", &Neuron::predict_classes)
+        .def("save_model", &Neuron::save_model)
+        .def("load_model", &Neuron::load_model)
+        .def("print_network_info", &Neuron::print_network_info);
+}
+```

@@ -302,10 +302,10 @@ class Neuron {
             Tensor flat = input;
             flat.reshape({flat.numel()});
             
-            if (input.numel() != inputNeurons) 
+            if (input.numel() != static_cast<size_t>(inputNeurons))
                 throw std::invalid_argument("forward_propagate(): Input size does not match number of input neurons.");
 
-            for (size_t i=0; i<inputNeurons; ++i) 
+            for (size_t i = 0; i < static_cast<size_t>(inputNeurons); ++i)
                 activations[0](i) = input.data[i];
 
             static thread_local std::mt19937 gen{std::random_device{}()};
@@ -406,9 +406,6 @@ class Neuron {
                 return;
             }
             
-            size_t input_features = inputs.shape[1];
-            size_t output_features = targets.shape[1];
-            
             std::vector<size_t> indices(num_samples);
             std::iota(indices.begin(), indices.end(), 0);
             std::mt19937 gen{std::random_device{}()};
@@ -481,10 +478,7 @@ class Neuron {
             file.write(reinterpret_cast<const char*>(&hiddenLayers), sizeof(int));
             file.write(reinterpret_cast<const char*>(&outputNeurons), sizeof(int));
             
-            for (int i = 0; i <= hiddenLayers; ++i) {
-                size_t in_size  = (i == 0) ? inputNeurons : hiddenNeurons;
-                size_t out_size = (i == hiddenLayers) ? outputNeurons : hiddenNeurons;
-                
+            for (int i = 0; i <= hiddenLayers; ++i) {                
                 file.write(reinterpret_cast<const char*>(weights[i].data.data()),
                 weights[i].data.size() * sizeof(double));
                 
