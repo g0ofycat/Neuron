@@ -1,21 +1,145 @@
 #pragma once
 
 #include <iostream>
-#include <numeric>
+#include <fstream>
 #include <vector>
+#include <cstddef>
+#include <numeric>
+#include <stdexcept>
+#include <initializer_list>
 #include <random>
 #include <cmath>
-#include <fstream>
+#include <functional>
 #include <algorithm>
+
+class Tensor {
+    public:
+        std::vector<size_t> shape;
+        std::vector<size_t> strides;
+        std::vector<double> data;
+
+        Tensor() = default;
+
+        Tensor(std::initializer_list<size_t> dims) : shape(dims) {
+            compute_strides();
+            data.assign(numel(), 0.0);
+        }
+
+        Tensor(const std::vector<size_t>& dims) : shape(dims) {
+            compute_strides();
+            data.assign(numel(), 0.0);
+        }
+
+        static Tensor zeros(const std::vector<size_t>& dims) { return Tensor(dims); }
+
+        static Tensor random_normal(const std::vector<size_t>& dims, double mean = 0.0, double stddev = 1.0) {
+            Tensor t(dims);
+            std::random_device rd;
+            std::mt19937 gen(rd());
+            std::normal_distribution<> d(mean, stddev);
+            for (auto &v : t.data) v = d(gen);
+            return t;
+        }
+
+        size_t ndim() const { return shape.size(); }
+        size_t numel() const { return shape.empty() ? 0 : std::accumulate(shape.begin(), shape.end(), (size_t)1, std::multiplies<size_t>()); }
+
+        Tensor& assign_data(const std::vector<double>& src) { 
+            data = src; return *this; 
+        }
+        
+        void compute_strides() {
+            strides.assign(shape.size(), 1);
+            if (!shape.empty()) {
+                for (int i = (int)shape.size() - 2; i >= 0; --i)
+                    strides[i] = strides[i + 1] * shape[i + 1];
+            }
+        }
+
+        size_t index_of(const std::vector<size_t>& idx) const {
+            if (idx.size() != shape.size()) throw std::out_of_range("index rank mismatch");
+            size_t offs = 0;
+            for (size_t i = 0; i < idx.size(); ++i) {
+                if (idx[i] >= shape[i]) throw std::out_of_range("index out of range");
+                offs += idx[i] * strides[i];
+            }
+            return offs;
+        }
+
+        template<typename... Idx>
+
+        double& operator()(Idx... idxs) {
+            std::vector<size_t> v{ static_cast<size_t>(idxs)... };
+            return data[index_of(v)];
+        }
+
+        template<typename... Idx>
+
+        double operator()(Idx... idxs) const {
+            std::vector<size_t> v{ static_cast<size_t>(idxs)... };
+            return data[index_of(v)];
+        }
+
+        double& at(const std::vector<size_t>& idx) { return data[index_of(idx)]; }
+        double  at(const std::vector<size_t>& idx) const { return data[index_of(idx)]; }
+
+        void reshape(const std::vector<size_t>& new_shape) {
+            size_t new_num = std::accumulate(new_shape.begin(), new_shape.end(), (size_t)1, std::multiplies<size_t>());
+            if (new_num != numel()) throw std::invalid_argument("reshape size mismatch");
+            shape = new_shape;
+            compute_strides();
+        }
+
+        Tensor sum(size_t axis) const {
+            if (axis >= ndim()) throw std::out_of_range("axis out of range");
+            std::vector<size_t> out_shape = shape;
+            out_shape.erase(out_shape.begin() + axis);
+            Tensor out(out_shape.empty() ? std::vector<size_t>{1} : out_shape);
+            std::fill(out.data.begin(), out.data.end(), 0.0);
+
+            std::vector<size_t> idx(shape.size(), 0);
+            for (size_t linear = 0; linear < numel(); ++linear) {
+                size_t tmp = linear;
+                for (size_t d = 0; d < shape.size(); ++d) {
+                    idx[d] = tmp / strides[d];
+                    tmp %= strides[d];
+                }
+                std::vector<size_t> out_idx;
+                out_idx.reserve(idx.size()-1);
+                for (size_t d=0; d<idx.size(); ++d) if (d!=axis) out_idx.push_back(idx[d]);
+                size_t out_off = out.index_of(out_idx.empty() ? std::vector<size_t>{0} : out_idx);
+                out.data[out_off] += data[linear];
+            }
+            return out;
+        }
+
+        static Tensor matmul2D(const Tensor& A, const Tensor& B) {
+            if (A.ndim() != 2 || B.ndim() != 2) throw std::invalid_argument("matmul2D requires 2D tensors");
+            size_t m = A.shape[0], k = A.shape[1];
+            size_t k2 = B.shape[0], n = B.shape[1];
+            if (k != k2) throw std::invalid_argument("matmul shape mismatch");
+            Tensor C({m,n});
+            for (size_t i=0;i<m;++i) {
+                for (size_t j=0;j<n;++j) {
+                    double sum = 0.0;
+                    for (size_t t=0;t<k;++t) sum += A(i,t) * B(t,j);
+                    C(i,j) = sum;
+                }
+            }
+            return C;
+        }
+
+        void fill(double v) { std::fill(data.begin(), data.end(), v); }
+};
 
 class Neuron {
     private:
         int inputNeurons, hiddenNeurons, hiddenLayers, outputNeurons;
         double dropout_rate;
-        double*** weights;
-        double**  biases;
-        std::vector<std::vector<double>> activations;
-        std::vector<std::vector<double>> z_values;
+        std::vector<Tensor> weights;
+        std::vector<Tensor> biases;
+        std::vector<Tensor> activations;
+        std::vector<Tensor> z_values;
 
         // ====== ACTIVATION FUNCTIONS ======
 
@@ -37,19 +161,19 @@ class Neuron {
 
         // ====== MISC ======
         
-        std::vector<double> Softmax(const std::vector<double>& logits) {
-            double max_logit = *std::max_element(logits.begin(), logits.end());
-            std::vector<double> exp_z(logits.size());
+        Tensor Softmax(const Tensor& logits) {
+            double max_logit = *std::max_element(logits.data.begin(), logits.data.end());
+            Tensor exp_z(logits.shape);
             double sum_exp = 0.0;
 
-            for (size_t i = 0; i < logits.size(); ++i) {
-                exp_z[i] = std::exp(logits[i] - max_logit);
-                sum_exp += exp_z[i];
+            for (size_t i = 0; i < logits.data.size(); ++i) {
+                exp_z.data[i] = std::exp(logits.data[i] - max_logit);
+                sum_exp += exp_z.data[i];
             }
-            
-            for (size_t i = 0; i < logits.size(); ++i)
-                exp_z[i] /= sum_exp;
-            
+
+            for (auto &v : exp_z.data)
+                v /= sum_exp;
+
             return exp_z;
         }
 
@@ -79,19 +203,6 @@ class Neuron {
 
             return loss / static_cast<double>(output.size());
         }
-
-        // ====== INIT ======
-
-        void initialize_weights(double** layerWeights, size_t out_neurons, size_t in_neurons) {
-            double std_dev = std::sqrt(1.0 / static_cast<double>(in_neurons)); // xavier (sigmoid): std::sqrt(1.0 / static_cast<double>(in_neurons)); he (relu): std::sqrt(2.0 / static_cast<double>(in_neurons));
-            std::random_device rd;
-            std::mt19937 gen(rd());
-            std::normal_distribution<> d(0.0, std_dev);
-
-            for (size_t i = 0; i < out_neurons; ++i)
-                for (size_t j = 0; j < in_neurons; ++j)
-                    layerWeights[i][j] = d(gen);
-        }
         
     public:
         // ====== CONSTRUCTOR ======
@@ -105,10 +216,9 @@ class Neuron {
         @param outputNeurons: number of output neurons
         @param dropout_rate: Dropout rate during training
         */
-        Neuron(int inputNeurons, int hiddenNeurons, int hiddenLayers, int outputNeurons, double dropout_rate): inputNeurons(inputNeurons), hiddenNeurons(hiddenNeurons), hiddenLayers(hiddenLayers), outputNeurons(outputNeurons), dropout_rate(dropout_rate){
-            weights = new double**[hiddenLayers + 1];
-            biases  = new double*[hiddenLayers + 1];
-            
+        explicit Neuron(int inputNeurons, int hiddenNeurons, int hiddenLayers, int outputNeurons, double dropout_rate): inputNeurons(inputNeurons), hiddenNeurons(hiddenNeurons), hiddenLayers(hiddenLayers), outputNeurons(outputNeurons), dropout_rate(dropout_rate){
+            weights.resize(hiddenLayers + 1);
+            biases.resize(hiddenLayers + 1);
             activations.resize(hiddenLayers + 2);
             z_values.resize(hiddenLayers + 1);
 
@@ -116,21 +226,16 @@ class Neuron {
                 size_t in  = (i == 0) ? inputNeurons : hiddenNeurons;
                 size_t out = (i == hiddenLayers) ? outputNeurons : hiddenNeurons;
 
-                weights[i] = new double*[out];
-                biases[i]  = new double[out];
+                double stddev = std::sqrt(1.0 / double(in)); // xavier (sigmoid): std::sqrt(1.0 / double(in)); he (relu): std::sqrt(2.0 / double(in));
+                weights[i] = Tensor::random_normal({out, in}, 0.0, stddev);
+                biases[i]  = Tensor(std::vector<size_t>{out});
+                biases[i].fill(0.0);
 
-                for (size_t j = 0; j < out; ++j)
-                    weights[i][j] = new double[in];
-
-                initialize_weights(weights[i], out, in);
-
-                for (size_t j = 0; j < out; ++j)
-                    biases[i][j] = 0.0;
-
-                activations[i + 1].resize(out);
-                z_values[i].resize(out);
+                activations[i+1] = Tensor(std::vector<size_t>{out});
+                z_values[i]      = Tensor(std::vector<size_t>{out});
             }
-            activations[0].resize(inputNeurons);
+
+            activations[0] = Tensor(std::vector<size_t>{(size_t)inputNeurons});
         }
 
         // ====== DE-CONSTRUCTOR ======
@@ -138,17 +243,7 @@ class Neuron {
         /*
         ~Neuron(): Neuron de-constructor
         */
-        ~Neuron() {
-            for (int i = 0; i <= hiddenLayers; i++) {
-                size_t out = (i == hiddenLayers) ? outputNeurons : hiddenNeurons;
-                for (size_t j = 0; j < out; j++)
-                    delete[] weights[i][j];
-                delete[] weights[i];
-                delete[] biases[i];
-            }
-            delete[] weights;
-            delete[] biases;
-        }
+        ~Neuron() = default;
         
         // ====== TRAINING ======
 
@@ -159,14 +254,17 @@ class Neuron {
         @param apply_dropout: Whether to apply dropout during forward propagation
         @return: Output vector from the network
         */
-        std::vector<double> forward_propagate(const std::vector<double>& input, bool apply_dropout = false) {
-            if (input.size() != static_cast<size_t>(inputNeurons)) {
-                throw std::invalid_argument("Input size doesn't match network inputNeurons size");
-            }
+        Tensor forward_propagate(const Tensor& input, bool apply_dropout=false) {
+            Tensor flat = input;
+            flat.reshape({flat.numel()});
+            
+            if (input.numel() != inputNeurons) 
+                throw std::invalid_argument("bad input size");
 
-            activations[0] = input;
-            std::random_device rd;
-            std::mt19937 gen(rd());
+            for (size_t i=0; i<inputNeurons; ++i) 
+                activations[0](i) = input.data[i];
+
+            static thread_local std::mt19937 gen{std::random_device{}()};
             std::bernoulli_distribution drop_dist(1.0 - dropout_rate);
 
             for (int layer = 0; layer <= hiddenLayers; ++layer) {
@@ -174,29 +272,30 @@ class Neuron {
                 size_t out_size = (layer == hiddenLayers) ? outputNeurons : hiddenNeurons;
 
                 for (size_t j = 0; j < out_size; ++j) {
-                    double z = biases[layer][j];
-                    for (size_t i = 0; i < in_size; ++i) {
-                        z += weights[layer][j][i] * activations[layer][i];
-                    }
-                    z_values[layer][j] = z;
+                    double z = biases[layer](j);
+                    for (size_t i = 0; i < in_size; ++i)
+                        z += weights[layer](j, i) * activations[layer](i);
+                    z_values[layer](j) = z;
 
                     if (layer == hiddenLayers) {
-                        activations[layer + 1][j] = z;
+                        activations[layer + 1](j) = z;
                     } else {
                         double a = Sigmoid(z);
                         if (apply_dropout) {
-                            if (!drop_dist(gen))
-                                a = 0.0;
-                            else
-                                a /= (1.0 - dropout_rate);
+                            if (!drop_dist(gen)) a = 0.0;
+                            else a /= (1.0 - dropout_rate);
                         }
-
-                        activations[layer + 1][j] = a;
+                        activations[layer + 1](j) = a;
                     }
                 }
             }
 
-            return activations[hiddenLayers + 1];
+            Tensor out({static_cast<size_t>(outputNeurons)});
+
+            for (size_t i = 0; i < out.numel(); ++i)
+                out(i) = activations[hiddenLayers + 1](i);
+
+            return out;
         }
         
         /*
@@ -206,44 +305,37 @@ class Neuron {
         @param input_target: Target output vector for the input
         @param learning_rate: Learning rate for weight updates
         */
-        void back_propagate(const std::vector<double>& input, const std::vector<double>& input_target, double learning_rate) {
+        void back_propagate(const Tensor& input, const Tensor& target, double learning_rate) {
             forward_propagate(input, true);
 
             std::vector<std::vector<double>> deltas(hiddenLayers + 1);
-
             for (int i = 0; i <= hiddenLayers; ++i) {
                 size_t out_size = (i == hiddenLayers) ? outputNeurons : hiddenNeurons;
                 deltas[i].resize(out_size);
             }
 
             for (size_t i = 0; i < static_cast<size_t>(outputNeurons); ++i) {
-                double error = activations[hiddenLayers + 1][i] - input_target[i];
-                deltas[hiddenLayers][i] = error * 1.0;
+                double error = activations[hiddenLayers + 1](i) - target(i);
+                deltas[hiddenLayers][i] = error;
             }
 
             for (int layer = hiddenLayers - 1; layer >= 0; --layer) {
-                size_t current_size = hiddenNeurons;
-                size_t next_size = (layer == hiddenLayers - 1) ? outputNeurons : hiddenNeurons;
-                
-                for (size_t i = 0; i < current_size; ++i) {
+                for (size_t i = 0; i < static_cast<size_t>(hiddenNeurons); ++i) {
                     double error = 0.0;
-                    for (size_t j = 0; j < next_size; ++j) {
-                        error += deltas[layer + 1][j] * weights[layer + 1][j][i];
-                    }
-                    deltas[layer][i] = error * Sigmoid_derivative(activations[layer + 1][i]);
+                    size_t next_size = (layer == hiddenLayers - 1) ? outputNeurons : hiddenNeurons;
+                    for (size_t j = 0; j < next_size; ++j)
+                        error += deltas[layer + 1][j] * weights[layer + 1](j, i);
+                    deltas[layer][i] = error * Sigmoid_derivative(activations[layer + 1](i));
                 }
             }
 
             for (int layer = 0; layer <= hiddenLayers; ++layer) {
                 size_t in_size  = (layer == 0) ? inputNeurons : hiddenNeurons;
                 size_t out_size = (layer == hiddenLayers) ? outputNeurons : hiddenNeurons;
-                
                 for (size_t j = 0; j < out_size; ++j) {
-                    biases[layer][j] -= learning_rate * deltas[layer][j];
-
-                    for (size_t i = 0; i < in_size; ++i) {
-                        weights[layer][j][i] -= learning_rate * deltas[layer][j] * activations[layer][i];
-                    }
+                    biases[layer](j) -= learning_rate * deltas[layer][j];
+                    for (size_t i = 0; i < in_size; ++i)
+                        weights[layer](j, i) -= learning_rate * deltas[layer][j] * activations[layer](i);
                 }
             }
         }
@@ -257,40 +349,36 @@ class Neuron {
         @param learning_rate: Learning rate for weight updates
         @param batch_size: Size of each training batch
         */
-        void train(const std::vector<std::vector<double>>& input, const std::vector<std::vector<double>>& input_target, int epochs, double learning_rate, int batch_size) {
-            
-            if (input.size() != input_target.size()) {
-                std::cerr << "Error: Input and target sizes don't match!" << std::endl;
+        void train(const std::vector<Tensor>& inputs, const std::vector<Tensor>& targets, int epochs, double learning_rate, int batch_size) {
+            if (inputs.size() != targets.size()) {
+                std::cerr << "Error: Input and target sizes don't match!\n";
                 return;
             }
-            
-            std::vector<size_t> indices(input.size());
+
+            std::vector<size_t> indices(inputs.size());
             std::iota(indices.begin(), indices.end(), 0);
-            
-            std::random_device rd;
-            std::mt19937 gen(rd());
-            
+            std::mt19937 gen{std::random_device{}()};
+
             for (int epoch = 0; epoch < epochs; ++epoch) {
                 std::shuffle(indices.begin(), indices.end(), gen);
-                
                 double total_loss = 0.0;
 
-                for (size_t i = 0; i < input.size(); i += batch_size) {
-                    size_t batch_end = std::min(i + batch_size, input.size());
-                    
-                    for (size_t j = i; j < batch_end; ++j) {
+                for (size_t i = 0; i < inputs.size(); i += batch_size) {
+                    size_t end = std::min(i + batch_size, inputs.size());
+                    for (size_t j = i; j < end; ++j) {
                         size_t idx = indices[j];
-                        back_propagate(input[idx], input_target[idx], learning_rate);
-                        
-                        auto output = forward_propagate(input[idx]);
+                        back_propagate(inputs[idx], targets[idx], learning_rate);
+                        Tensor out = forward_propagate(inputs[idx]);
 
-                        total_loss += mean_squared_error(output, input_target[idx]);
+                        Tensor flat_t = targets[idx];
+                        flat_t.reshape({flat_t.numel()});
+                        total_loss += mean_squared_error(out.data, flat_t.data);
                     }
                 }
-                
-                if (epoch % 100 == 0) {
-                    std::cout << "Epoch " << epoch << ", Loss: " << total_loss / input.size() << std::endl;
-                }
+                if (epoch % 100 == 0)
+                    std::cout << "Epoch " << epoch
+                            << ", Loss: " << total_loss / inputs.size()
+                            << std::endl;
             }
         }
 
@@ -301,7 +389,7 @@ class Neuron {
 
         @param input: Input vector for prediction
         */
-        std::vector<double> predict(const std::vector<double>& input) {
+        Tensor predict(const Tensor& input) {
             return forward_propagate(input);
         }
 
@@ -310,7 +398,7 @@ class Neuron {
 
         @param input: Input vector for prediction
         */
-        std::vector<double> predict_classes(const std::vector<double>& input) {
+        Tensor predict_classes(const Tensor& input) {
             return Softmax(forward_propagate(input));
         }
 
@@ -337,11 +425,11 @@ class Neuron {
                 size_t in_size  = (i == 0) ? inputNeurons : hiddenNeurons;
                 size_t out_size = (i == hiddenLayers) ? outputNeurons : hiddenNeurons;
                 
-                for (size_t j = 0; j < out_size; ++j) {
-                    file.write(reinterpret_cast<const char*>(weights[i][j]), sizeof(double) * in_size);
-                }
+                file.write(reinterpret_cast<const char*>(weights[i].data.data()),
+                weights[i].data.size() * sizeof(double));
                 
-                file.write(reinterpret_cast<const char*>(biases[i]), sizeof(double) * out_size);
+                file.write(reinterpret_cast<const char*>(biases[i].data.data()),
+                biases[i].data.size() * sizeof(double));
             }
             
             file.close();
@@ -378,10 +466,13 @@ class Neuron {
                 size_t out_size = (i == hiddenLayers) ? outputNeurons : hiddenNeurons;
                 
                 for (size_t j = 0; j < out_size; ++j) {
-                    file.read(reinterpret_cast<char*>(weights[i][j]), sizeof(double) * in_size);
+                    file.read(reinterpret_cast<char*>(
+                    &weights[i].data[j * in_size]),
+                    sizeof(double) * in_size);
                 }
                 
-                file.read(reinterpret_cast<char*>(biases[i]), sizeof(double) * out_size);
+                file.read(reinterpret_cast<char*>(biases[i].data.data()),
+                sizeof(double) * out_size);
             }
             
             file.close();
