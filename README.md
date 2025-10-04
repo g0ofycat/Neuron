@@ -45,3 +45,9 @@ int main() {
     return 0;
 }
 ```
+
+## flags for fastest training
+
+```
+g++ -O3 -march=native -ffast-math -fopenmp -DNDEBUG main.cpp -o main
+```

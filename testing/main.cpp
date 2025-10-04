@@ -22,15 +22,20 @@ int main() {
         target_tensor(i, dataset.training_labels[i]) = 1.0f;
     }
 
-    Neuron nn(784, 128, 2, 10, 0.05);
+    Neuron nn(784, 256, 3, 10, 0.05);
     
-    nn.train(input_tensor, target_tensor, 2, 0.01, 64);
+    nn.train(input_tensor, target_tensor, 100, 0.2, 64);
 
     nn.save_model("../training/model/model_data.bin");
 
+    nn.load_model("../training/model/model_data.bin");
+
     Tensor test_input(std::vector<size_t>{1, 784});
+
     for (size_t j = 0; j < 784; ++j)
         test_input(0, j) = static_cast<double>(dataset.test_images[0][j]) / 255.0;
+
+    std::cout << "Number: " << (int)dataset.test_labels[0] << std::endl;
 
     Tensor out_tensor = nn.predict_classes(test_input);
 
