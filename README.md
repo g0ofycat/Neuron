@@ -46,8 +46,16 @@ int main() {
 }
 ```
 
-## flags used for fastest training
+## flags used for fastest training (in training dir)
+
+### PS:
 
 ```
 g++ -O3 -march=native -ffast-math -fopenmp -DNDEBUG main.cpp -o main
+```
+
+### WSL:
+
+```
+nvcc -O3 -use_fast_math -Xcompiler "-fopenmp -march=native -DNDEBUG" main.cpp -o main -lcublas
 ```

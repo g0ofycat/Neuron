@@ -24,9 +24,9 @@ int main() {
 
     Neuron nn(784, 256, 3, 10, 0.05);
     
-    // nn.train(input_tensor, target_tensor, 100, 0.05, 64);
+    nn.train(input_tensor, target_tensor, 200, 0.05, 64);
 
-    // nn.save_model("../training/model/model_data.bin");
+    nn.save_model("../training/model/model_data.bin");
 
     nn.load_model("../training/model/model_data.bin");
 
