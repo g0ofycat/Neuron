@@ -3,7 +3,7 @@
 #include <iostream>
 
 int main() {
-    size_t num_samples = 1000;
+    size_t num_samples = 30000;
 
     auto dataset = mnist::read_dataset<std::vector, std::vector, uint8_t, uint8_t>(
         "../mnist-master/dataset"
@@ -24,9 +24,9 @@ int main() {
 
     Neuron nn(784, 256, 3, 10, 0.05);
     
-    nn.train(input_tensor, target_tensor, 200, 0.05, 64);
+    // nn.train(input_tensor, target_tensor, 250, 0.05, 256);
 
-    nn.save_model("../training/model/model_data.bin");
+    // nn.save_model("../training/model/model_data.bin");
 
     nn.load_model("../training/model/model_data.bin");
 

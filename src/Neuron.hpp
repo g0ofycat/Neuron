@@ -206,6 +206,13 @@ class Neuron {
         std::vector<Tensor> activations;
         std::vector<Tensor> z_values;
 
+        Tensor temp_input;
+        Tensor temp_target;
+        Tensor temp_output;
+        std::vector<Tensor> weight_gradients;
+        std::vector<Tensor> bias_gradients;
+        std::vector<std::vector<double>> deltas;
+
         // ====== ACTIVATION FUNCTIONS ======
 
         double ReLU(double x) {
@@ -283,6 +290,22 @@ class Neuron {
             static thread_local std::mt19937 gen{std::random_device{}()};
             return gen;
         }
+
+        void allocate_training_buffers() {
+            temp_input = Tensor({static_cast<size_t>(inputNeurons)});
+            temp_target = Tensor({static_cast<size_t>(outputNeurons)});
+            temp_output = Tensor({static_cast<size_t>(outputNeurons)});
+            
+            weight_gradients.resize(hiddenLayers + 1);
+            bias_gradients.resize(hiddenLayers + 1);
+            deltas.resize(hiddenLayers + 1);
+            
+            for (int i = 0; i <= hiddenLayers; ++i) {
+                weight_gradients[i] = Tensor::zeros(weights[i].shape);
+                bias_gradients[i] = Tensor::zeros(biases[i].shape);
+                deltas[i].resize(get_layer_output_size(i));
+            }
+        }
     public:
         // ====== CONSTRUCTOR ======
 
@@ -315,6 +338,8 @@ class Neuron {
             }
 
             activations[0] = Tensor(std::vector<size_t>{(size_t)inputNeurons});
+
+            allocate_training_buffers();
         }
 
         // ====== DE-CONSTRUCTOR ======
@@ -330,33 +355,35 @@ class Neuron {
         compute_gradients(): Computes gradients for all weights and biases
 
         @param target: Target output tensor
-        @param weight_gradients: Output parameter for weight gradients
-        @param bias_gradients: Output parameter for bias gradients
         */
-        void compute_gradients(const Tensor& target,
-                            std::vector<Tensor>& weight_gradients,
-                            std::vector<Tensor>& bias_gradients) {
+        void compute_gradients(const Tensor& target) {
+            const size_t out_size = outputNeurons;
+            double* delta_out = deltas[hiddenLayers].data();
+            const double* act_out = activations[hiddenLayers + 1].data.data();
+            const double* tgt = target.data.data();
             
-            std::vector<std::vector<double>> deltas(hiddenLayers + 1);
-            for (int i = 0; i <= hiddenLayers; ++i) {
-                size_t out_size = get_layer_output_size(i);
-                deltas[i].resize(out_size);
-            }
-
-            for (size_t i = 0; i < static_cast<size_t>(outputNeurons); ++i) {
-                deltas[hiddenLayers][i] = activations[hiddenLayers + 1].data[i] - target.data[i];
+            #pragma omp parallel for simd
+            for (size_t i = 0; i < out_size; ++i) {
+                delta_out[i] = act_out[i] - tgt[i];
             }
 
             for (int layer = hiddenLayers - 1; layer >= 0; --layer) {
                 size_t curr_size = hiddenNeurons;
                 size_t next_size = get_layer_output_size(layer + 1);
                 
+                const double* w_next = weights[layer + 1].data.data();
+                const double* delta_next = deltas[layer + 1].data();
+                const double* z_curr = z_values[layer].data.data();
+                double* delta_curr = deltas[layer].data();
+                
                 #pragma omp parallel for
                 for (size_t i = 0; i < curr_size; ++i) {
                     double error = 0.0;
-                    for (size_t j = 0; j < next_size; ++j)
-                        error += deltas[layer + 1][j] * weights[layer + 1].data[j * curr_size + i];
-                    deltas[layer][i] = error * ReLU_derivative(z_values[layer].data[i]);
+                    #pragma omp simd reduction(+:error)
+                    for (size_t j = 0; j < next_size; ++j) {
+                        error += delta_next[j] * w_next[j * curr_size + i];
+                    }
+                    delta_curr[i] = error * ReLU_derivative(z_curr[i]);
                 }
             }
 
@@ -364,13 +391,21 @@ class Neuron {
                 size_t in_size = get_layer_input_size(layer);
                 size_t out_size = get_layer_output_size(layer);
                 
+                const double* act_in = activations[layer].data.data();
+                const double* delta_layer = deltas[layer].data();
+                double* w_grad = weight_gradients[layer].data.data();
+                double* b_grad = bias_gradients[layer].data.data();
+
                 #pragma omp parallel for
                 for (size_t j = 0; j < out_size; ++j) {
-                    bias_gradients[layer].data[j] += deltas[layer][j];
+                    double delta_j = delta_layer[j];
+                    b_grad[j] += delta_j;
+                    
                     size_t w_offset = j * in_size;
-                    for (size_t i = 0; i < in_size; ++i)
-                        weight_gradients[layer].data[w_offset + i] += 
-                            deltas[layer][j] * activations[layer].data[i];
+                    #pragma omp simd
+                    for (size_t i = 0; i < in_size; ++i) {
+                        w_grad[w_offset + i] += delta_j * act_in[i];
+                    }
                 }
             }
         }
@@ -378,29 +413,30 @@ class Neuron {
         /*
         apply_gradients(): Applies computed gradients to weights and biases
 
-        @param weight_gradients: Weight gradients to apply
-        @param bias_gradients: Bias gradients to apply
         @param learning_rate: Learning rate for updates
         @param batch_size: Batch size for gradient averaging
         */
-        void apply_gradients(const std::vector<Tensor>& weight_gradients,
-                            const std::vector<Tensor>& bias_gradients,
-                            double learning_rate,
-                            size_t batch_size) {
-            
-            double inv_batch_size = 1.0 / batch_size;
+        void apply_gradients(double learning_rate, size_t batch_size) {
+            double scale = learning_rate / batch_size;
             
             for (int layer = 0; layer <= hiddenLayers; ++layer) {
-                size_t w_size = weight_gradients[layer].data.size();
-                size_t b_size = bias_gradients[layer].data.size();
+                size_t w_size = weights[layer].data.size();
+                size_t b_size = biases[layer].data.size();
                 
-                #pragma omp parallel for
-                for (size_t i = 0; i < w_size; ++i)
-                    weights[layer].data[i] -= learning_rate * weight_gradients[layer].data[i] * inv_batch_size;
+                double* w = weights[layer].data.data();
+                double* b = biases[layer].data.data();
+                const double* w_grad = weight_gradients[layer].data.data();
+                const double* b_grad = bias_gradients[layer].data.data();
                 
-                #pragma omp parallel for
-                for (size_t i = 0; i < b_size; ++i)
-                    biases[layer].data[i] -= learning_rate * bias_gradients[layer].data[i] * inv_batch_size;
+                #pragma omp parallel for simd
+                for (size_t i = 0; i < w_size; ++i) {
+                    w[i] -= scale * w_grad[i];
+                }
+                
+                #pragma omp parallel for simd
+                for (size_t i = 0; i < b_size; ++i) {
+                    b[i] -= scale * b_grad[i];
+                }
             }
         }
 
@@ -420,8 +456,6 @@ class Neuron {
             #pragma omp parallel for
             for (size_t i = 0; i < input.numel(); ++i)
                 activations[0].data[i] = input.data[i];
-
-            std::bernoulli_distribution drop_dist(1.0 - dropout_rate);
 
             for (int layer = 0; layer <= hiddenLayers; ++layer) {
                 size_t in_size = get_layer_input_size(layer);
@@ -444,8 +478,11 @@ class Neuron {
                     for (size_t j = 0; j < out_size; ++j) {
                         double z = b[j];
                         size_t w_offset = j * in_size;
-                        for (size_t i = 0; i < in_size; ++i)
+                        
+                        #pragma omp simd reduction(+:z)
+                        for (size_t i = 0; i < in_size; ++i) {
                             z += w[w_offset + i] * act_in[i];
+                        }
                         z_out[j] = z;
 
                         if (is_output_layer) {
@@ -465,7 +502,6 @@ class Neuron {
             }
 
             Tensor out({static_cast<size_t>(outputNeurons)});
-
             #pragma omp parallel for
             for (size_t i = 0; i < out.numel(); ++i)
                 out.data[i] = activations[hiddenLayers + 1].data[i];
@@ -482,17 +518,14 @@ class Neuron {
         */
         void back_propagate(const Tensor& input, const Tensor& target, double learning_rate) {
             forward_propagate(input, true);
-            
-            std::vector<Tensor> weight_gradients(hiddenLayers + 1);
-            std::vector<Tensor> bias_gradients(hiddenLayers + 1);
-            
+    
             for (int i = 0; i <= hiddenLayers; ++i) {
-                weight_gradients[i] = Tensor::zeros(weights[i].shape);
-                bias_gradients[i] = Tensor::zeros(biases[i].shape);
+                weight_gradients[i].fill(0.0);
+                bias_gradients[i].fill(0.0);
             }
             
-            compute_gradients(target, weight_gradients, bias_gradients);
-            apply_gradients(weight_gradients, bias_gradients, learning_rate, 1);
+            compute_gradients(target);
+            apply_gradients(learning_rate, 1);
         }
 
         /*
@@ -511,6 +544,7 @@ class Neuron {
             }
             
             size_t num_samples = inputs.shape[0];
+
             if (num_samples != targets.shape[0]) {
                 std::cerr << "train(): Number of samples mismatch\n";
                 return;
@@ -522,14 +556,6 @@ class Neuron {
             if (targets.shape[1] != static_cast<size_t>(outputNeurons)) {
                 std::cerr << "train(): Target size mismatch\n";
                 return;
-            }
-
-            std::vector<Tensor> weight_gradients(hiddenLayers + 1);
-            std::vector<Tensor> bias_gradients(hiddenLayers + 1);
-            
-            for (int i = 0; i <= hiddenLayers; ++i) {
-                weight_gradients[i] = Tensor::zeros(weights[i].shape);
-                bias_gradients[i] = Tensor::zeros(biases[i].shape);
             }
             
             std::vector<size_t> indices(num_samples);
@@ -551,31 +577,49 @@ class Neuron {
                     for (size_t b = batch_start; b < batch_end; ++b) {
                         size_t sample_idx = indices[b];
 
-                        Tensor input({static_cast<size_t>(inputNeurons)});
                         size_t input_offset = sample_idx * inputs.shape[1];
-                        for (size_t i = 0; i < input.numel(); ++i)
-                            input.data[i] = inputs.data[input_offset + i];
-                        
-                        Tensor target({static_cast<size_t>(outputNeurons)});
                         size_t target_offset = sample_idx * targets.shape[1];
-                        for (size_t i = 0; i < target.numel(); ++i)
-                            target.data[i] = targets.data[target_offset + i];
-                        
-                        forward_propagate(input, true);
 
-                        Tensor output = Softmax(activations[hiddenLayers + 1]); // activations[hiddenLayers + 1] for ReLU, z_values[hiddenLayers] for sigmoid
+                        double* inp_ptr = temp_input.data.data();
+                        double* tgt_ptr = temp_target.data.data();
+                        const double* src_inp = inputs.data.data() + input_offset;
+                        const double* src_tgt = targets.data.data() + target_offset;
                         
-                        total_loss += cross_entropy_loss(output.data, target.data);
+                        std::copy(src_inp, src_inp + inputNeurons, inp_ptr);
+                        std::copy(src_tgt, src_tgt + outputNeurons, tgt_ptr);
                         
-                        compute_gradients(target, weight_gradients, bias_gradients);
+                        forward_propagate(temp_input, true);
+
+                        double max_logit = *std::max_element(
+                            activations[hiddenLayers + 1].data.begin(),
+                            activations[hiddenLayers + 1].data.end()
+                        );
+                        
+                        // change ts section
+
+                        double sum_exp = 0.0;
+                        for (size_t i = 0; i < temp_output.numel(); ++i) {
+                            temp_output.data[i] = std::exp(
+                                activations[hiddenLayers + 1].data[i] - max_logit
+                            );
+                            sum_exp += temp_output.data[i];
+                        }
+                        
+                        for (size_t i = 0; i < temp_output.numel(); ++i) {
+                            temp_output.data[i] /= sum_exp;
+                        }
+                        
+                        total_loss += cross_entropy_loss(temp_output.data, temp_target.data);
+                        
+                        compute_gradients(temp_target);
                     }
                     
-                    apply_gradients(weight_gradients, bias_gradients, learning_rate, current_batch_size);
+                    apply_gradients(learning_rate, current_batch_size);
                 }
 
                 if (epoch % 1 == 0) {
                     std::cout << "Epoch " << epoch
-                            << " | Loss: " << (total_loss / num_samples) << std::endl; // (total_loss / num_samples) / outputNeurons for mse; (total_loss / num_samples) for cel
+                            << " | Loss: " << (total_loss / num_samples) << std::endl;
                 }
             }
         }
