@@ -46,7 +46,7 @@ int main() {
 }
 ```
 
-## flags for fastest training
+## flags used for fastest training
 
 ```
 g++ -O3 -march=native -ffast-math -fopenmp -DNDEBUG main.cpp -o main
