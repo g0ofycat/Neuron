@@ -24,7 +24,7 @@ int main() {
 
     Neuron nn(784, 256, 3, 10, 0.05);
     
-    // nn.train(input_tensor, target_tensor, 100, 0.1, 64);
+    // nn.train(input_tensor, target_tensor, 100, 0.05, 64);
 
     // nn.save_model("../training/model/model_data.bin");
 
@@ -33,13 +33,13 @@ int main() {
     Tensor test_input(std::vector<size_t>{1, 784});
 
     for (size_t j = 0; j < 784; ++j)
-        test_input(0, j) = static_cast<double>(dataset.test_images[5][j]) / 255.0;
+        test_input(0, j) = static_cast<double>(dataset.test_images[0][j]) / 255.0;
 
-    std::cout << "Number: " << (int)dataset.test_labels[5] << std::endl;
+    std::cout << "Label: " << (int)dataset.test_labels[0] << std::endl;
 
     Tensor out_tensor = nn.predict_classes(test_input);
 
-    std::cout << "Prediction: ";
+    std::cout << "Predictions: ";
     for (float val : out_tensor.data)
         std::cout << val << " ";
     std::cout << std::endl;
