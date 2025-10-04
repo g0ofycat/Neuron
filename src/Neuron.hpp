@@ -232,21 +232,18 @@ class Neuron {
         }
 
         // ====== TRAINING ======
-        
-        Tensor Softmax(const Tensor& logits) {
+
+        void Softmax_inplace(const Tensor& logits, Tensor& output) {
             double max_logit = *std::max_element(logits.data.begin(), logits.data.end());
-            Tensor exp_z(logits.shape);
             double sum_exp = 0.0;
 
             for (size_t i = 0; i < logits.data.size(); ++i) {
-                exp_z.data[i] = std::exp(logits.data[i] - max_logit);
-                sum_exp += exp_z.data[i];
+                output.data[i] = std::exp(logits.data[i] - max_logit);
+                sum_exp += output.data[i];
             }
 
-            for (auto &v : exp_z.data)
+            for (auto &v : output.data)
                 v /= sum_exp;
-
-            return exp_z;
         }
 
         double mean_squared_error(const std::vector<double>& output, const std::vector<double>& target) {
@@ -289,6 +286,13 @@ class Neuron {
         static std::mt19937& get_rng() {
             static thread_local std::mt19937 gen{std::random_device{}()};
             return gen;
+        }
+
+        void zero_gradients() {
+            for (int i = 0; i <= hiddenLayers; ++i) {
+                weight_gradients[i].fill(0.0);
+                bias_gradients[i].fill(0.0);
+            }
         }
 
         void allocate_training_buffers() {
@@ -502,6 +506,7 @@ class Neuron {
             }
 
             Tensor out({static_cast<size_t>(outputNeurons)});
+            
             #pragma omp parallel for
             for (size_t i = 0; i < out.numel(); ++i)
                 out.data[i] = activations[hiddenLayers + 1].data[i];
@@ -519,12 +524,10 @@ class Neuron {
         void back_propagate(const Tensor& input, const Tensor& target, double learning_rate) {
             forward_propagate(input, true);
     
-            for (int i = 0; i <= hiddenLayers; ++i) {
-                weight_gradients[i].fill(0.0);
-                bias_gradients[i].fill(0.0);
-            }
+            zero_gradients();
             
             compute_gradients(target);
+
             apply_gradients(learning_rate, 1);
         }
 
@@ -569,10 +572,7 @@ class Neuron {
                     size_t batch_end = std::min(batch_start + batch_size, num_samples);
                     size_t current_batch_size = batch_end - batch_start;
                     
-                    for (int i = 0; i <= hiddenLayers; ++i) {
-                        weight_gradients[i].fill(0.0);
-                        bias_gradients[i].fill(0.0);
-                    }
+                    zero_gradients();
                     
                     for (size_t b = batch_start; b < batch_end; ++b) {
                         size_t sample_idx = indices[b];
@@ -590,24 +590,7 @@ class Neuron {
                         
                         forward_propagate(temp_input, true);
 
-                        double max_logit = *std::max_element(
-                            activations[hiddenLayers + 1].data.begin(),
-                            activations[hiddenLayers + 1].data.end()
-                        );
-                        
-                        // change ts section
-
-                        double sum_exp = 0.0;
-                        for (size_t i = 0; i < temp_output.numel(); ++i) {
-                            temp_output.data[i] = std::exp(
-                                activations[hiddenLayers + 1].data[i] - max_logit
-                            );
-                            sum_exp += temp_output.data[i];
-                        }
-                        
-                        for (size_t i = 0; i < temp_output.numel(); ++i) {
-                            temp_output.data[i] /= sum_exp;
-                        }
+                        Softmax_inplace(activations[hiddenLayers + 1], temp_output);
                         
                         total_loss += cross_entropy_loss(temp_output.data, temp_target.data);
                         
@@ -641,7 +624,10 @@ class Neuron {
         @param input: Input vector for prediction
         */
         Tensor predict_classes(const Tensor& input) {
-            return Softmax(forward_propagate(input));
+            Tensor out = forward_propagate(input);
+            Tensor result({static_cast<size_t>(outputNeurons)});
+            Softmax_inplace(out, result);
+            return result;
         }
 
         // ====== MODEL ======
