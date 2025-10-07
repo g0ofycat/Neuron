@@ -19,9 +19,9 @@ int main() {
     // input, target, epochs, learning_rate, batch_size
     nn.train(input, target, 100, 0.1, 64);
 
-    // nn.save_model("model_data.bin");
+    nn.save_model("model_data.bin");
 
-    // nn.load_model("model_data.bin");
+    nn.load_model("model_data.bin");
 
     Tensor test_input = {0.1, 0.2, 0.3};
 
