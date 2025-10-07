@@ -600,7 +600,7 @@ class Neuron {
                     apply_gradients(learning_rate, current_batch_size);
                 }
 
-                if (epoch % 100 == 0) {
+                if (epoch % 10000 == 0) {
                     std::cout << "Epoch " << epoch
                             << " | Loss: " << (total_loss / num_samples) << std::endl;
                 }
