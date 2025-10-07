@@ -44,15 +44,15 @@ class Tensor {
             shape = {rows, cols};
             compute_strides();
         }
-
-        // creating tensors with specific dimensions (filled with zeros); Tensor({3, 4, 5})
-        explicit Tensor(std::initializer_list<size_t> dims): shape(dims) {
-            compute_strides();
-            data.assign(numel(), 0.0);
-        }
         
         // used for dynamic shape creation; Tensor({3, 4, 5})
         Tensor(const std::vector<size_t>& dims): shape(dims) {
+            compute_strides();
+            data.assign(numel(), 0.0);
+        }
+
+        // creating tensors with specific dimensions (filled with zeros); Tensor({3, 4, 5})
+        explicit Tensor(std::initializer_list<size_t> dims): shape(dims) {
             compute_strides();
             data.assign(numel(), 0.0);
         }

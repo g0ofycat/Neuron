@@ -89,7 +89,7 @@ std::cout << "Average: " << (total_ms / TRIALS) << " ms\n";
 return 0;
 ```
 
-**results (average over 100 loops):**
+### results (average over 100 loops):
 
 ```
 | Setup           | Average Time (ms) | Notes                                        |
@@ -97,7 +97,15 @@ return 0;
 | No Flags (PS)   | 1,566.14 ms       | Default compilation, unoptimized             |
 | Flags (PS)      | 356.24 ms         | `-O3 -march=native -ffast-math -DNDEBUG`     |
 | Flags (WSL)     | 117.27 ms         | Optimized on WSL, faster CPU execution       |
-```
+``` 
+
+### Specs
+
+**CPU:** AMD Ryzen 5 8640HS (6 cores / 12 threads) w/ Radeon 760M Graphics
+**RAM:** 8 GB DDR5
+**GPU:** AMD Radeon 760M Graphics
+**OS:** Windows 11
+**Compiler:** GCC 15.2.0
 
 ### flags used for fastest training (in training dir)
 
