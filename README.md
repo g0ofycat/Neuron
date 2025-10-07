@@ -46,15 +46,68 @@ int main() {
 }
 ```
 
-## flags used for fastest training (in training dir)
+## benchmarks
 
-### PS:
+**benchmarking will used a medium sized neural network to replicate general purpose data you would see in a normal project**
+
+*neural network settings:*
+
+```cpp
+const int INPUT_SIZE = 64;
+const int OUTPUT_SIZE = 10;
+const int HIDDEN_NEURONS = 256;
+const int HIDDEN_LAYERS = 3;
+const int SAMPLES = 1024;
+const int BATCH_SIZE = 64;
+const int EPOCHS = 1;
+```
+
+*benchmarking code:*
+
+```cpp
+Neuron nn(INPUT_SIZE, HIDDEN_NEURONS, HIDDEN_LAYERS, OUTPUT_SIZE, 0);
+
+Tensor input  = Tensor::random({SAMPLES, INPUT_SIZE});
+Tensor target = Tensor::random({SAMPLES, OUTPUT_SIZE});
+
+nn.train(input, target, 1, 0.01, BATCH_SIZE);
+
+double total_ms = 0.0;
+for (int t = 0; t < TRIALS; t++) {
+    auto start = std::chrono::high_resolution_clock::now();
+
+    nn.train(input, target, EPOCHS, 0.01, BATCH_SIZE);
+
+    auto end = std::chrono::high_resolution_clock::now();
+    double elapsed_ms = std::chrono::duration<double, std::milli>(end - start).count();
+    std::cout << "Trial " << t << ": " << elapsed_ms << " ms\n";
+    total_ms += elapsed_ms;
+}
+
+std::cout << "Average: " << (total_ms / TRIALS) << " ms\n";
+
+return 0;
+```
+
+**results (average over 100 loops):**
 
 ```
-g++ -O3 -march=native -ffast-math -fopenmp -DNDEBUG main.cpp -o main
+| Setup           | Average Time (ms) | Notes                                        |
+|-----------------|-------------------|----------------------------------------------|
+| No Flags (PS)   | 1,566.14 ms       | Default compilation, unoptimized             |
+| Flags (PS)      | 356.24 ms         | `-O3 -march=native -ffast-math -DNDEBUG`     |
+| Flags (WSL)     | 117.27 ms         | Optimized on WSL, faster CPU execution       |
 ```
 
-### WSL:
+### flags used for fastest training (in training dir)
+
+#### PS:
+
+```
+g++ -O3 -march=native -DNDEBUG -funroll-loops -ffast-math main.cpp -o main
+```
+
+#### WSL:
 
 ```
 nvcc -O3 -use_fast_math -Xcompiler "-fopenmp -march=native -DNDEBUG" main.cpp -o main -lcublas

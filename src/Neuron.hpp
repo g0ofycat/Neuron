@@ -61,6 +61,17 @@ class Tensor {
 
         static Tensor zeros(const std::vector<size_t>& dims) { return Tensor(dims); }
 
+        static Tensor random(const std::vector<size_t>& dims, double min = 0.0, double max = 1.0) {
+            Tensor t(dims);
+            static thread_local std::mt19937 gen{std::random_device{}()};
+            std::uniform_real_distribution<double> dist(min, max);
+
+            for (auto &v : t.data)
+                v = dist(gen);
+
+            return t;
+        }
+
         static Tensor random_normal(const std::vector<size_t>& dims, double mean = 0.0, double stddev = 1.0) {
             Tensor t(dims);
             static thread_local std::mt19937 gen{std::random_device{}()};
@@ -600,10 +611,12 @@ class Neuron {
                     apply_gradients(learning_rate, current_batch_size);
                 }
 
-                if (epoch % 10000 == 0) {
+                /*
+                if (epoch % 1000 == 0) {
                     std::cout << "Epoch " << epoch
                             << " | Loss: " << (total_loss / num_samples) << std::endl;
                 }
+                */
             }
         }
 
