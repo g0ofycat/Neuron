@@ -91,13 +91,32 @@ return 0;
 
 ### results (average over 100 loops):
 
-```
-| Setup           | Average Time (ms) | Notes                                        |
-|-----------------|-------------------|----------------------------------------------|
-| No Flags (PS)   | 1,566.14 ms       | Default compilation, unoptimized             |
-| Flags (PS)      | 356.24 ms         | `-O3 -march=native -ffast-math -DNDEBUG`     |
-| Flags (WSL)     | 117.27 ms         | Optimized on WSL, faster CPU execution       |
-``` 
+<table>
+  <thead>
+    <tr>
+      <th>Setup</th>
+      <th>Average Time (ms)</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>No Flags (PS)</td>
+      <td>1,566.14</td>
+      <td>Default compilation, unoptimized</td>
+    </tr>
+    <tr>
+      <td>Flags (PS)</td>
+      <td>356.24</td>
+      <td>-O3 -march=native -ffast-math -DNDEBUG</td>
+    </tr>
+    <tr>
+      <td>Flags (WSL)</td>
+      <td>117.27</td>
+      <td>Optimized on WSL, faster CPU execution</td>
+    </tr>
+  </tbody>
+</table>
 
 ### Specs
 
@@ -105,7 +124,7 @@ return 0;
 **RAM:** 8 GB DDR5
 **GPU:** AMD Radeon 760M Graphics
 **OS:** Windows 11
-**Compiler:** GCC 15.2.0
+**Compiler:** g++ 15.2.0
 
 ### flags used for fastest training (in training dir)
 
