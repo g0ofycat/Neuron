@@ -13,6 +13,14 @@
 #include <algorithm>
 #include <omp.h>
 
+// ====== HELPERS ======
+
+static std::mt19937& get_rng() {
+    static thread_local std::mt19937 gen{std::random_device{}()};
+
+    return gen;
+};
+
 // ====== TENSOR CLASS ======
 
 class Tensor {
@@ -44,7 +52,6 @@ class Tensor {
 
             for (auto& row : list2d) {
                 if (row.size() != cols) throw std::invalid_argument("All rows must have same length");
-
                 data.insert(data.end(), row.begin(), row.end());
             }
 
@@ -56,7 +63,7 @@ class Tensor {
         // used for dynamic shape creation; Tensor({3, 4, 5})
         Tensor(const std::vector<size_t>& dims): shape(dims) {
             compute_strides();
-            
+
             data.assign(numel(), 0.0);
         }
 
@@ -73,20 +80,22 @@ class Tensor {
 
         static Tensor random(const std::vector<size_t>& dims, double min = 0.0, double max = 1.0) {
             Tensor t(dims);
+            std::mt19937& gen = get_rng();
             std::uniform_real_distribution<double> dist(min, max);
 
             for (auto &v : t.data)
-                v = dist(Neuron::get_rng());
+                v = dist(gen);
 
             return t;
         }
 
         static Tensor random_normal(const std::vector<size_t>& dims, double mean = 0.0, double stddev = 1.0) {
             Tensor t(dims);
+            std::mt19937& gen = get_rng();
             std::normal_distribution<> d(mean, stddev);
 
             for (auto &v : t.data) 
-                v = d(Neuron::get_rng());
+                v = d(gen);
 
             return t;
         }
@@ -109,6 +118,7 @@ class Tensor {
             return result;
         }
 
+        /*
         static Tensor matmul2D(const Tensor& A, const Tensor& B) {
             if (A.ndim() != 2 || B.ndim() != 2) 
                 throw std::invalid_argument("matmul2D(): requires 2D tensors");
@@ -139,6 +149,7 @@ class Tensor {
             
             return C;
         }
+        */
 
         // ====== UTILITY ======
 
@@ -147,9 +158,12 @@ class Tensor {
 
         size_t index_of(const std::vector<size_t>& idx) const {
             if (idx.size() != shape.size()) throw std::out_of_range("index_of(): Index rank mismatch");
+
             size_t offs = 0;
+
             for (size_t i = 0; i < idx.size(); ++i) {
                 if (idx[i] >= shape[i]) throw std::out_of_range("index_of(): Index out of range");
+
                 offs += idx[i] * strides[i];
             }
 
@@ -162,12 +176,14 @@ class Tensor {
 
         Tensor sum(size_t axis) const {
             if (axis >= ndim()) throw std::out_of_range("sum(): Axis out of range");
+
             std::vector<size_t> out_shape = shape;
             out_shape.erase(out_shape.begin() + axis);
             Tensor out(out_shape.empty() ? std::vector<size_t>{1} : out_shape);
             out.fill(0.0);
 
             std::vector<size_t> idx(shape.size(), 0);
+
             for (size_t linear = 0; linear < numel(); ++linear) {
                 size_t tmp = linear;
                 for (size_t d = 0; d < shape.size(); ++d) {
@@ -188,11 +204,13 @@ class Tensor {
             size_t new_num = std::accumulate(new_shape.begin(), new_shape.end(), (size_t)1, std::multiplies<size_t>());
             if (new_num != numel()) throw std::invalid_argument("reshape(): Reshape size mismatch");
             shape = new_shape;
+
             compute_strides();
         }
         
         void compute_strides() {
             strides.assign(shape.size(), 1);
+
             if (!shape.empty()) {
                 for (int i = (int)shape.size() - 2; i >= 0; --i)
                     strides[i] = strides[i + 1] * shape[i + 1];
@@ -205,6 +223,7 @@ class Tensor {
 
         double& operator()(Idx... idxs) {
             std::vector<size_t> v{ static_cast<size_t>(idxs)... };
+
             return data[index_of(v)];
         }
 
@@ -212,6 +231,7 @@ class Tensor {
 
         double operator()(Idx... idxs) const {
             std::vector<size_t> v{ static_cast<size_t>(idxs)... };
+
             return data[index_of(v)];
         }
 
@@ -276,12 +296,10 @@ class Neuron {
             }
 
             double sum = 0.0;
-
             for (size_t i = 0; i < output.size(); ++i) {
                 double diff = output[i] - target[i];
                 sum += diff * diff;
             }
-
             return sum / static_cast<double>(output.size());
         }
 
@@ -476,7 +494,7 @@ class Neuron {
         */
         Tensor forward_propagate(const Tensor& input, bool apply_dropout = false) {
             if (input.numel() != static_cast<size_t>(inputNeurons))
-                throw std::invalid_argument("forward_propagate(): Input size mismatch");
+                throw std::invalid_argument("Input size mismatch");
 
             #pragma omp parallel for
             for (size_t i = 0; i < input.numel(); ++i)
@@ -497,7 +515,6 @@ class Neuron {
                 #pragma omp parallel
                 {
                     std::bernoulli_distribution local_drop(1.0 - dropout_rate);
-                    bool keep = local_drop(get_rng());
 
                     #pragma omp for
                     for (size_t j = 0; j < out_size; ++j) {
@@ -515,7 +532,7 @@ class Neuron {
                         } else {
                             double a = ReLU(z);
                             if (apply_dropout) {
-                                if (!local_drop(keep))
+                                if (!local_drop(get_rng()))
                                     a = 0.0;
                                 else
                                     a /= (1.0 - dropout_rate);
@@ -729,12 +746,6 @@ class Neuron {
 
         // ====== UTILITY METHODS ======
         
-        static std::mt19937& get_rng() {
-            static thread_local std::mt19937 gen{std::random_device{}()};
-            
-            return gen;
-        }
-
         /*
         print_network_info(): Prints information about the neural network architecture and parameters
         */

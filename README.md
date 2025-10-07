@@ -118,7 +118,7 @@ return 0;
   </tbody>
 </table>
 
-### Specs
+### specs
 
 **CPU:** AMD Ryzen 5 8640HS (6 cores / 12 threads) w/ Radeon 760M Graphics
 **RAM:** 8 GB DDR5
