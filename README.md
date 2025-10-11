@@ -1,6 +1,6 @@
 # Neuron
 
-fast lightweight general purposed library for supervised training of deep neural nets. handles 1d-3d dimension tensors along with the ability to save and load models (.bin files)
+fast lightweight general purposed library for supervised training of deep neural nets. handles 1d-3d tensors along with the ability to save and load models (.bin files)
 
 ## basic implementation
 
