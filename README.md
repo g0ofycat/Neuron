@@ -1,6 +1,6 @@
 # Neuron
 
-fast lightweight general purposed library for supervised training of deep neural nets. handles 1d-3d tensors along with the ability to save and load models (.bin files)
+fast lightweight general purposed library for supervised training of deep neural nets. handles any dimension tensor along with the ability to save and load models (.bin files)
 
 ## basic implementation
 
@@ -67,12 +67,13 @@ const int EPOCHS = 1;
 ```cpp
 Neuron nn(INPUT_SIZE, HIDDEN_NEURONS, HIDDEN_LAYERS, OUTPUT_SIZE, 0);
 
-Tensor input  = Tensor::random({SAMPLES, INPUT_SIZE});
-Tensor target = Tensor::random({SAMPLES, OUTPUT_SIZE});
+Tensor input  = Tensor::random_tensor({SAMPLES, INPUT_SIZE});
+Tensor target = Tensor::random_tensor({SAMPLES, OUTPUT_SIZE});
 
 nn.train(input, target, 1, 0.01, BATCH_SIZE);
 
 double total_ms = 0.0;
+
 for (int t = 0; t < TRIALS; t++) {
     auto start = std::chrono::high_resolution_clock::now();
 

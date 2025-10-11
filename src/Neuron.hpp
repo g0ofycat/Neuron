@@ -78,7 +78,7 @@ class Tensor {
 
         static Tensor zeros(const std::vector<size_t>& dims) { return Tensor(dims); }
 
-        static Tensor random(const std::vector<size_t>& dims, double min = 0.0, double max = 1.0) {
+        static Tensor random_tensor(const std::vector<size_t>& dims, double min = 0.0, double max = 1.0) {
             Tensor t(dims);
             std::mt19937& gen = get_rng();
             std::uniform_real_distribution<double> dist(min, max);
@@ -118,39 +118,6 @@ class Tensor {
             return result;
         }
 
-        /*
-        static Tensor matmul2D(const Tensor& A, const Tensor& B) {
-            if (A.ndim() != 2 || B.ndim() != 2) 
-                throw std::invalid_argument("matmul2D(): requires 2D tensors");
-            
-            size_t m = A.shape[0], k = A.shape[1];
-            size_t k2 = B.shape[0], n = B.shape[1];
-            
-            if (k != k2) 
-                throw std::invalid_argument("matmul2D(): shape mismatch");
-            
-            Tensor C({m, n});
-            C.fill(0.0);
-            
-            const double* A_data = A.data.data();
-            const double* B_data = B.data.data();
-            double* C_data = C.data.data();
-            
-            for (size_t i = 0; i < m; ++i) {
-                for (size_t t = 0; t < k; ++t) {
-                    double a_val = A_data[i * k + t];
-                    size_t b_offset = t * n;
-                    size_t c_offset = i * n;
-                    for (size_t j = 0; j < n; ++j) {
-                        C_data[c_offset + j] += a_val * B_data[b_offset + j];
-                    }
-                }
-            }
-            
-            return C;
-        }
-        */
-
         // ====== UTILITY ======
 
         size_t ndim() const { return shape.size(); }
@@ -180,6 +147,7 @@ class Tensor {
             std::vector<size_t> out_shape = shape;
             out_shape.erase(out_shape.begin() + axis);
             Tensor out(out_shape.empty() ? std::vector<size_t>{1} : out_shape);
+
             out.fill(0.0);
 
             std::vector<size_t> idx(shape.size(), 0);
@@ -208,6 +176,26 @@ class Tensor {
             compute_strides();
         }
         
+        Tensor flatten(size_t start_dim = 0) const {
+            if (shape.empty()) return Tensor(std::vector<size_t>{0});
+
+            size_t flat_size = 1;
+            
+            for (size_t i = start_dim; i < shape.size(); ++i)
+                flat_size *= shape[i];
+
+            std::vector<size_t> new_shape(shape.begin(), shape.begin() + start_dim);
+            new_shape.push_back(flat_size);
+
+            Tensor out;
+
+            out.data = data;
+            out.shape = new_shape;
+            out.compute_strides();
+
+            return out;
+        }
+
         void compute_strides() {
             strides.assign(shape.size(), 1);
 
@@ -237,6 +225,51 @@ class Tensor {
 
         double& at(const std::vector<size_t>& idx) { return data[index_of(idx)]; }
         double at(const std::vector<size_t>& idx) const { return data[index_of(idx)]; }
+
+        // ====== OPERATORS ======
+
+        friend std::ostream& operator<<(std::ostream& os, const Tensor& t) {
+            if (t.shape.empty() || t.numel() == 0) {
+                os << "Tensor([])";
+                return os;
+            }
+            
+            std::function<void(size_t, size_t, const std::string&)> print_recursive;
+
+            print_recursive = [&](size_t dim, size_t offset, const std::string& indent) {
+                if (dim == t.shape.size() - 1) {
+                    os << "[";
+                    for (size_t i = 0; i < t.shape[dim]; ++i) {
+                        if (i > 0) os << ", ";
+                        os << t.data[offset + i];
+                    }
+                    os << "]";
+                } else {
+                    os << "[";
+                    size_t stride = t.strides[dim];
+                    for (size_t i = 0; i < t.shape[dim]; ++i) {
+                        if (i > 0) {
+                            os << ",\n" << indent << " ";
+                        }
+                        print_recursive(dim + 1, offset + i * stride, indent + " ");
+                    }
+                    os << "]";
+                }
+            };
+
+            os << "Tensor(shape=[";
+
+            for (size_t i = 0; i < t.shape.size(); ++i) {
+                if (i > 0) os << ", ";
+                os << t.shape[i];
+            }
+
+            os << "])\n";
+            
+            print_recursive(0, 0, "");
+            
+            return os;
+        }
 };
 
 // ====== NEURON CLASS ======
@@ -296,10 +329,12 @@ class Neuron {
             }
 
             double sum = 0.0;
+
             for (size_t i = 0; i < output.size(); ++i) {
                 double diff = output[i] - target[i];
                 sum += diff * diff;
             }
+
             return sum / static_cast<double>(output.size());
         }
 
@@ -400,10 +435,21 @@ class Neuron {
         @param target: Target output tensor
         */
         void compute_gradients(const Tensor& target) {
+            Tensor flat_target = target;
+
+            if (target.shape.size() != 1) {
+                flat_target = target.flatten(0);
+            }
+            
+            if (flat_target.numel() != static_cast<size_t>(outputNeurons)) {
+                std::cerr << "compute_gradients(): Target size mismatch\n";
+                return;
+            }
+
             const size_t out_size = outputNeurons;
             double* delta_out = deltas[hiddenLayers].data();
             const double* act_out = activations[hiddenLayers + 1].data.data();
-            const double* tgt = target.data.data();
+            const double* tgt = flat_target.data.data();
             
             #pragma omp parallel for simd
             for (size_t i = 0; i < out_size; ++i) {
@@ -579,71 +625,77 @@ class Neuron {
         @param batch_size: Size of each training batch
         */
         void train(const Tensor& inputs, const Tensor& targets, int epochs, double learning_rate, int batch_size) {
-            if (inputs.shape.size() != 2 || targets.shape.size() != 2) {
-                std::cerr << "train(): Inputs and targets must be 2D tensors\n";
+            if (inputs.shape.empty() || targets.shape.empty()) {
+                std::cerr << "train(): Empty tensors provided\n";
                 return;
             }
-            
-            size_t num_samples = inputs.shape[0];
 
-            if (num_samples != targets.shape[0]) {
+            size_t total_elements = inputs.numel();
+            size_t feature_size = inputs.shape.back();
+            size_t num_samples = total_elements / feature_size;
+            
+            Tensor flat_inputs = inputs;
+            flat_inputs.reshape({num_samples, feature_size});
+            
+            Tensor flat_targets = targets;
+            flat_targets.reshape({num_samples, targets.shape.back()});
+            
+            size_t input_size = feature_size;
+            size_t target_size = targets.shape.back();
+
+            if (num_samples != (targets.numel() / target_size)) {
                 std::cerr << "train(): Number of samples mismatch\n";
                 return;
             }
-            if (inputs.shape[1] != static_cast<size_t>(inputNeurons)) {
-                std::cerr << "train(): Input feature size mismatch\n";
+
+            if (input_size != static_cast<size_t>(inputNeurons)) {
+                std::cerr << "train(): Input feature size mismatch. Expected " 
+                        << inputNeurons << " but got " << input_size << "\n";
                 return;
             }
-            if (targets.shape[1] != static_cast<size_t>(outputNeurons)) {
-                std::cerr << "train(): Target size mismatch\n";
+
+            if (target_size != static_cast<size_t>(outputNeurons)) {
+                std::cerr << "train(): Target size mismatch. Expected " 
+                        << outputNeurons << " but got " << target_size << "\n";
                 return;
             }
-            
+
             std::vector<size_t> indices(num_samples);
             std::iota(indices.begin(), indices.end(), 0);
 
             for (int epoch = 0; epoch < epochs; ++epoch) {
                 std::shuffle(indices.begin(), indices.end(), get_rng());
                 double total_loss = 0.0;
-                
+
                 for (size_t batch_start = 0; batch_start < num_samples; batch_start += batch_size) {
                     size_t batch_end = std::min(batch_start + batch_size, num_samples);
                     size_t current_batch_size = batch_end - batch_start;
-                    
+
                     zero_gradients();
-                    
+
                     for (size_t b = batch_start; b < batch_end; ++b) {
                         size_t sample_idx = indices[b];
 
-                        size_t input_offset = sample_idx * inputs.shape[1];
-                        size_t target_offset = sample_idx * targets.shape[1];
+                        size_t input_offset = sample_idx * input_size;
+                        size_t target_offset = sample_idx * target_size;
 
                         double* inp_ptr = temp_input.data.data();
                         double* tgt_ptr = temp_target.data.data();
-                        const double* src_inp = inputs.data.data() + input_offset;
-                        const double* src_tgt = targets.data.data() + target_offset;
-                        
+                        const double* src_inp = flat_inputs.data.data() + input_offset;
+                        const double* src_tgt = flat_targets.data.data() + target_offset;
+
                         std::copy(src_inp, src_inp + inputNeurons, inp_ptr);
                         std::copy(src_tgt, src_tgt + outputNeurons, tgt_ptr);
-                        
-                        forward_propagate(temp_input, true);
 
+                        forward_propagate(temp_input, true);
                         Softmax_inplace(activations[hiddenLayers + 1], temp_output);
-                        
+
                         total_loss += cross_entropy_loss(temp_output.data, temp_target.data);
-                        
                         compute_gradients(temp_target);
                     }
-                    
+
                     apply_gradients(learning_rate, current_batch_size);
                 }
-
-                /*
-                if (epoch % 1000 == 0) {
-                    std::cout << "Epoch " << epoch
-                            << " | Loss: " << (total_loss / num_samples) << std::endl;
-                }
-                */
             }
         }
 
@@ -667,6 +719,7 @@ class Neuron {
             Tensor out = forward_propagate(input);
             Tensor result({static_cast<size_t>(outputNeurons)});
             Softmax_inplace(out, result);
+
             return result;
         }
 
@@ -698,6 +751,7 @@ class Neuron {
             }
             
             file.close();
+
             std::cout << "save_model(): Model saved to: " << filepath << std::endl;
         }
 
@@ -741,6 +795,7 @@ class Neuron {
             }
             
             file.close();
+            
             std::cout << "load_model(): Model loaded from: " << filepath << std::endl;
         }
 
