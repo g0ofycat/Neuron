@@ -1,6 +1,6 @@
 # Neuron
 
-fast lightweight general purposed library for supervised training of deep neural nets. handles 1d-3d tensors along with the ability to save and load models (.bin files)
+fast lightweight general purposed library for supervised training of deep neural nets. handles 1d-3d tensors along with the ability to save and load models (.bin files). also allows for multithreading
 
 ## basic implementation
 
@@ -42,6 +42,50 @@ int main() {
 
     std::cout << std::endl;
 
+    return 0;
+}
+```
+
+## multithreading
+
+*basic implentation of multithreading:*
+
+```cpp
+#include "../src/Neuron.hpp"
+#include <vector>
+#include <thread>
+
+const int THREADS_AMOUT = 5;
+const int INPUT_SIZE = 64;
+const int OUTPUT_SIZE = 10;
+const int HIDDEN_NEURONS = 256;
+const int HIDDEN_LAYERS = 3;
+const int SAMPLES = 1024;
+const int BATCH_SIZE = 64;
+const int EPOCHS = 10;
+
+void start_benchmark(int id) {
+    Neuron nn(INPUT_SIZE, HIDDEN_NEURONS, HIDDEN_LAYERS, OUTPUT_SIZE, 0);
+
+    Tensor input = Tensor::random_tensor({SAMPLES, INPUT_SIZE});
+    Tensor target = Tensor::random_tensor({SAMPLES, OUTPUT_SIZE});
+
+    nn.train(input, target, EPOCHS, 0.01, BATCH_SIZE);
+
+    nn.save_model("../training/model/ID_"+std::to_string(id)+"-model_data.bin");
+}
+
+int main() {
+    std::vector<std::thread> threads;
+
+    for (int i = 0; i < THREADS_AMOUT; ++i) {
+        threads.emplace_back([i](){ start_benchmark(i); });
+    }
+
+    for (std::thread& t : threads) {
+        t.join();
+    }
+    
     return 0;
 }
 ```
@@ -122,10 +166,15 @@ return 0;
 ### specs
 
 **CPU:** AMD Ryzen 5 8640HS (6 cores / 12 threads) w/ Radeon 760M Graphics
+
 **RAM:** 8 GB DDR5
+
 **GPU:** AMD Radeon 760M Graphics
+
 **OS:** Windows 11
+
 **C++ Version:** C++ 17
+
 **Compiler:** g++ 15.2.0
 
 ### flags used for fastest training (in training dir)
