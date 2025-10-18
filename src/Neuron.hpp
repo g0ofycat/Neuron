@@ -666,6 +666,7 @@ class Neuron {
             for (int epoch = 0; epoch < epochs; ++epoch) {
                 std::shuffle(indices.begin(), indices.end(), get_rng());
                 double total_loss = 0.0;
+                // int correct_predictions = 0;
 
                 for (size_t batch_start = 0; batch_start < num_samples; batch_start += batch_size) {
                     size_t batch_end = std::min(batch_start + batch_size, num_samples);
@@ -691,11 +692,30 @@ class Neuron {
                         Softmax_inplace(activations[hiddenLayers + 1], temp_output);
 
                         total_loss += cross_entropy_loss(temp_output.data, temp_target.data);
+                        
+                        /*
+                        size_t predicted_class = std::distance(temp_output.data.begin(), std::max_element(temp_output.data.begin(), temp_output.data.end()));
+
+                        size_t true_class = std::distance(temp_target.data.begin(), std::max_element(temp_target.data.begin(), temp_target.data.end()));
+
+                        if (predicted_class == true_class) {
+                            correct_predictions++;
+                        }
+                        */
+
                         compute_gradients(temp_target);
                     }
 
                     apply_gradients(learning_rate, current_batch_size);
                 }
+                
+                /*
+                double avg_loss = total_loss / num_samples;
+
+                double accuracy = ((double)correct_predictions / num_samples) * 100;
+
+                std::cout << "Epoch: " << epoch << " - Loss: " << avg_loss << " - Accuracy: " << accuracy << "%" << std::endl;
+                */
             }
         }
 

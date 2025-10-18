@@ -125,6 +125,7 @@ return 0;
 **RAM:** 8 GB DDR5
 **GPU:** AMD Radeon 760M Graphics
 **OS:** Windows 11
+**C++ Version:** C++ 17
 **Compiler:** g++ 15.2.0
 
 ### flags used for fastest training (in training dir)
