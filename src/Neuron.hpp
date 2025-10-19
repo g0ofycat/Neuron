@@ -13,6 +13,10 @@
 #include <algorithm>
 #include <omp.h>
 
+// ====== ENUMS ======
+
+enum class TrainType { Classification, Regression };
+
 // ====== HELPERS ======
 
 static std::mt19937& get_rng() {
@@ -384,6 +388,196 @@ class Neuron {
                 deltas[i].resize(get_layer_output_size(i));
             }
         }
+
+        // ====== TRAINING TYPES ======
+
+        /*
+        train_classification(): Trains the neural network using mini-batch gradient descent (For classification models)
+
+        @param inputs: Tensor of input vectors for training
+        @param targets: Tensor of target output vectors for training
+        @param epochs: Number of training epochs
+        @param learning_rate: Learning rate for weight updates
+        @param batch_size: Size of each training batch
+        */
+        void train_classification(const Tensor& inputs, const Tensor& targets, int epochs, double learning_rate, int batch_size) {
+            if (inputs.shape.empty() || targets.shape.empty()) {
+                std::cerr << "train_classification(): Empty tensors provided\n";
+                return;
+            }
+
+            size_t total_elements = inputs.numel();
+            size_t feature_size = inputs.shape.back();
+            size_t num_samples = total_elements / feature_size;
+            
+            Tensor flat_inputs = inputs;
+            flat_inputs.reshape({num_samples, feature_size});
+            
+            Tensor flat_targets = targets;
+            flat_targets.reshape({num_samples, targets.shape.back()});
+            
+            size_t input_size = feature_size;
+            size_t target_size = targets.shape.back();
+
+            if (num_samples != (targets.numel() / target_size)) {
+                std::cerr << "train_classification(): Number of samples mismatch\n";
+                return;
+            }
+
+            if (input_size != static_cast<size_t>(inputNeurons)) {
+                std::cerr << "train_classification(): Input feature size mismatch. Expected " 
+                        << inputNeurons << " but got " << input_size << "\n";
+                return;
+            }
+
+            if (target_size != static_cast<size_t>(outputNeurons)) {
+                std::cerr << "train_classification(): Target size mismatch. Expected " 
+                        << outputNeurons << " but got " << target_size << "\n";
+                return;
+            }
+
+            std::vector<size_t> indices(num_samples);
+            std::iota(indices.begin(), indices.end(), 0);
+
+            for (int epoch = 0; epoch < epochs; ++epoch) {
+                std::shuffle(indices.begin(), indices.end(), get_rng());
+                double total_loss = 0.0;
+                int correct_predictions = 0;
+
+                for (size_t batch_start = 0; batch_start < num_samples; batch_start += batch_size) {
+                    size_t batch_end = std::min(batch_start + batch_size, num_samples);
+                    size_t current_batch_size = batch_end - batch_start;
+
+                    zero_gradients();
+
+                    for (size_t b = batch_start; b < batch_end; ++b) {
+                        size_t sample_idx = indices[b];
+
+                        size_t input_offset = sample_idx * input_size;
+                        size_t target_offset = sample_idx * target_size;
+
+                        double* inp_ptr = temp_input.data.data();
+                        double* tgt_ptr = temp_target.data.data();
+                        const double* src_inp = flat_inputs.data.data() + input_offset;
+                        const double* src_tgt = flat_targets.data.data() + target_offset;
+
+                        std::copy(src_inp, src_inp + inputNeurons, inp_ptr);
+                        std::copy(src_tgt, src_tgt + outputNeurons, tgt_ptr);
+
+                        forward_propagate(temp_input, true);
+                        Softmax_inplace(activations[hiddenLayers + 1], temp_output);
+
+                        total_loss += cross_entropy_loss(temp_output.data, temp_target.data);
+                        
+                        size_t predicted_class = std::distance(temp_output.data.begin(), std::max_element(temp_output.data.begin(), temp_output.data.end()));
+
+                        size_t true_class = std::distance(temp_target.data.begin(), std::max_element(temp_target.data.begin(), temp_target.data.end()));
+
+                        if (predicted_class == true_class) {
+                            correct_predictions++;
+                        }
+
+                        compute_gradients(temp_target);
+                    }
+
+                    apply_gradients(learning_rate, current_batch_size);
+                }
+                
+                double avg_loss = total_loss / num_samples;
+
+                double accuracy = ((double)correct_predictions / num_samples) * 100;
+
+                std::cout << "Epoch: " << epoch << " - Loss: " << avg_loss << " - Accuracy: " << accuracy << "%" << std::endl;
+            }
+        }
+        
+        /*
+        train_regression(): Trains the neural network using mini-batch gradient descent (For regression models)
+
+        @param inputs: Tensor of input vectors for training
+        @param targets: Tensor of target output vectors for training
+        @param epochs: Number of training epochs
+        @param learning_rate: Learning rate for weight updates
+        @param batch_size: Size of each training batch
+        */
+        void train_regression(const Tensor& inputs, const Tensor& targets, int epochs, double learning_rate, int batch_size) {
+            if (inputs.shape.empty() || targets.shape.empty()) {
+                std::cerr << "train_regression(): Empty tensors provided\n";
+                return;
+            }
+
+            size_t total_elements = inputs.numel();
+            size_t feature_size = inputs.shape.back();
+            size_t num_samples = total_elements / feature_size;
+
+            Tensor flat_inputs = inputs;
+            flat_inputs.reshape({num_samples, feature_size});
+
+            Tensor flat_targets = targets;
+            flat_targets.reshape({num_samples, targets.shape.back()});
+
+            size_t input_size = feature_size;
+            size_t target_size = targets.shape.back();
+
+            if (num_samples != (targets.numel() / target_size)) {
+                std::cerr << "train_regression(): Number of samples mismatch\n";
+                return;
+            }
+
+            if (input_size != static_cast<size_t>(inputNeurons)) {
+                std::cerr << "train_regression(): Input feature size mismatch. Expected "
+                        << inputNeurons << " but got " << input_size << "\n";
+                return;
+            }
+
+            if (target_size != static_cast<size_t>(outputNeurons)) {
+                std::cerr << "train_regression(): Target size mismatch. Expected "
+                        << outputNeurons << " but got " << target_size << "\n";
+                return;
+            }
+
+            std::vector<size_t> indices(num_samples);
+            std::iota(indices.begin(), indices.end(), 0);
+
+            for (int epoch = 0; epoch < epochs; ++epoch) {
+                std::shuffle(indices.begin(), indices.end(), get_rng());
+                double total_loss = 0.0;
+
+                for (size_t batch_start = 0; batch_start < num_samples; batch_start += batch_size) {
+                    size_t batch_end = std::min(batch_start + batch_size, num_samples);
+                    size_t current_batch_size = batch_end - batch_start;
+
+                    zero_gradients();
+
+                    for (size_t b = batch_start; b < batch_end; ++b) {
+                        size_t sample_idx = indices[b];
+
+                        size_t input_offset = sample_idx * input_size;
+                        size_t target_offset = sample_idx * target_size;
+
+                        double* inp_ptr = temp_input.data.data();
+                        double* tgt_ptr = temp_target.data.data();
+                        const double* src_inp = flat_inputs.data.data() + input_offset;
+                        const double* src_tgt = flat_targets.data.data() + target_offset;
+
+                        std::copy(src_inp, src_inp + inputNeurons, inp_ptr);
+                        std::copy(src_tgt, src_tgt + outputNeurons, tgt_ptr);
+
+                        temp_output = forward_propagate(temp_input, true);
+                        double loss = mean_squared_error(temp_output.data, temp_target.data);
+
+                        total_loss += loss;
+
+                        compute_gradients(temp_target);
+                    }
+
+                    apply_gradients(learning_rate, current_batch_size);
+                }
+
+                double avg_loss = total_loss / static_cast<double>(num_samples);
+                std::cout << "Epoch " << epoch << " | Loss: " << avg_loss << "\n";
+            }
+        }
     public:
         // ====== CONSTRUCTOR ======
 
@@ -616,106 +810,26 @@ class Neuron {
         }
 
         /*
-        train(): Trains the neural network using mini-batch gradient descent
+        train(): Trains the neural network using mini-batch gradient descent; Wrapper for regression and classification training
 
         @param inputs: Tensor of input vectors for training
         @param targets: Tensor of target output vectors for training
         @param epochs: Number of training epochs
         @param learning_rate: Learning rate for weight updates
         @param batch_size: Size of each training batch
+        @param training_type: TrainType::Classification || TrainType::Regression
         */
-        void train(const Tensor& inputs, const Tensor& targets, int epochs, double learning_rate, int batch_size) {
-            if (inputs.shape.empty() || targets.shape.empty()) {
-                std::cerr << "train(): Empty tensors provided\n";
-                return;
-            }
-
-            size_t total_elements = inputs.numel();
-            size_t feature_size = inputs.shape.back();
-            size_t num_samples = total_elements / feature_size;
-            
-            Tensor flat_inputs = inputs;
-            flat_inputs.reshape({num_samples, feature_size});
-            
-            Tensor flat_targets = targets;
-            flat_targets.reshape({num_samples, targets.shape.back()});
-            
-            size_t input_size = feature_size;
-            size_t target_size = targets.shape.back();
-
-            if (num_samples != (targets.numel() / target_size)) {
-                std::cerr << "train(): Number of samples mismatch\n";
-                return;
-            }
-
-            if (input_size != static_cast<size_t>(inputNeurons)) {
-                std::cerr << "train(): Input feature size mismatch. Expected " 
-                        << inputNeurons << " but got " << input_size << "\n";
-                return;
-            }
-
-            if (target_size != static_cast<size_t>(outputNeurons)) {
-                std::cerr << "train(): Target size mismatch. Expected " 
-                        << outputNeurons << " but got " << target_size << "\n";
-                return;
-            }
-
-            std::vector<size_t> indices(num_samples);
-            std::iota(indices.begin(), indices.end(), 0);
-
-            for (int epoch = 0; epoch < epochs; ++epoch) {
-                std::shuffle(indices.begin(), indices.end(), get_rng());
-                double total_loss = 0.0;
-                // int correct_predictions = 0;
-
-                for (size_t batch_start = 0; batch_start < num_samples; batch_start += batch_size) {
-                    size_t batch_end = std::min(batch_start + batch_size, num_samples);
-                    size_t current_batch_size = batch_end - batch_start;
-
-                    zero_gradients();
-
-                    for (size_t b = batch_start; b < batch_end; ++b) {
-                        size_t sample_idx = indices[b];
-
-                        size_t input_offset = sample_idx * input_size;
-                        size_t target_offset = sample_idx * target_size;
-
-                        double* inp_ptr = temp_input.data.data();
-                        double* tgt_ptr = temp_target.data.data();
-                        const double* src_inp = flat_inputs.data.data() + input_offset;
-                        const double* src_tgt = flat_targets.data.data() + target_offset;
-
-                        std::copy(src_inp, src_inp + inputNeurons, inp_ptr);
-                        std::copy(src_tgt, src_tgt + outputNeurons, tgt_ptr);
-
-                        forward_propagate(temp_input, true);
-                        Softmax_inplace(activations[hiddenLayers + 1], temp_output);
-
-                        total_loss += cross_entropy_loss(temp_output.data, temp_target.data);
-                        
-                        /*
-                        size_t predicted_class = std::distance(temp_output.data.begin(), std::max_element(temp_output.data.begin(), temp_output.data.end()));
-
-                        size_t true_class = std::distance(temp_target.data.begin(), std::max_element(temp_target.data.begin(), temp_target.data.end()));
-
-                        if (predicted_class == true_class) {
-                            correct_predictions++;
-                        }
-                        */
-
-                        compute_gradients(temp_target);
-                    }
-
-                    apply_gradients(learning_rate, current_batch_size);
-                }
-                
-                /*
-                double avg_loss = total_loss / num_samples;
-
-                double accuracy = ((double)correct_predictions / num_samples) * 100;
-
-                std::cout << "Epoch: " << epoch << " - Loss: " << avg_loss << " - Accuracy: " << accuracy << "%" << std::endl;
-                */
+        void train(const Tensor& inputs, const Tensor& targets, int epochs, double learning_rate, int batch_size, TrainType training_type) {
+            switch(training_type) {
+                case TrainType::Classification:
+                    train_classification(inputs, targets, epochs, learning_rate, batch_size);
+                    break;
+                case TrainType::Regression:
+                    train_regression(inputs, targets, epochs, learning_rate, batch_size);
+                    break;
+                default:
+                    std::cerr << "train(): Unknown training type\n";
+                    return;
             }
         }
 

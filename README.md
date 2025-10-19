@@ -24,7 +24,7 @@ int main() {
     };
 
     // input, target, epochs, learning_rate, batch_size
-    nn.train(input, target, 100, 0.1, 64);
+    nn.train(input, target, 100, 0.1, 64, TrainType::Classification);
 
     // nn.save_model("model_data.bin");
 
@@ -70,7 +70,7 @@ void start_benchmark(int id) {
     Tensor input = Tensor::random_tensor({SAMPLES, INPUT_SIZE});
     Tensor target = Tensor::random_tensor({SAMPLES, OUTPUT_SIZE});
 
-    nn.train(input, target, EPOCHS, 0.01, BATCH_SIZE);
+    nn.train(input, target, EPOCHS, 0.01, BATCH_SIZE, TrainType::Classification);
 
     nn.save_model("../training/model/ID_"+std::to_string(id)+"-model_data.bin");
 }
@@ -114,14 +114,14 @@ Neuron nn(INPUT_SIZE, HIDDEN_NEURONS, HIDDEN_LAYERS, OUTPUT_SIZE, 0);
 Tensor input  = Tensor::random_tensor({SAMPLES, INPUT_SIZE});
 Tensor target = Tensor::random_tensor({SAMPLES, OUTPUT_SIZE});
 
-nn.train(input, target, 1, 0.01, BATCH_SIZE);
+nn.train(input, target, 1, 0.01, BATCH_SIZE, TrainType::Classification);
 
 double total_ms = 0.0;
 
 for (int t = 0; t < TRIALS; t++) {
     auto start = std::chrono::high_resolution_clock::now();
 
-    nn.train(input, target, EPOCHS, 0.01, BATCH_SIZE);
+    nn.train(input, target, EPOCHS, 0.01, BATCH_SIZE, TrainType::Classification);
 
     auto end = std::chrono::high_resolution_clock::now();
     double elapsed_ms = std::chrono::duration<double, std::milli>(end - start).count();
