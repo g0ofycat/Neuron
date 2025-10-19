@@ -101,40 +101,53 @@ const int INPUT_SIZE = 64;
 const int OUTPUT_SIZE = 10;
 const int HIDDEN_NEURONS = 256;
 const int HIDDEN_LAYERS = 3;
+
 const int SAMPLES = 1024;
 const int BATCH_SIZE = 64;
-const int EPOCHS = 1;
+
+const int EPOCHS = 100;
+
+const int THREADS_AMOUT = 1;
 ```
 
 *benchmarking code:*
 
 ```cpp
-Neuron nn(INPUT_SIZE, HIDDEN_NEURONS, HIDDEN_LAYERS, OUTPUT_SIZE, 0);
+void start_benchmark(int id) {
+    Neuron nn(INPUT_SIZE, HIDDEN_NEURONS, HIDDEN_LAYERS, OUTPUT_SIZE, 0);
 
-Tensor input  = Tensor::random_tensor({SAMPLES, INPUT_SIZE});
-Tensor target = Tensor::random_tensor({SAMPLES, OUTPUT_SIZE});
+    Tensor input  = Tensor::random_tensor({SAMPLES, INPUT_SIZE});
+    Tensor target = Tensor::random_tensor({SAMPLES, OUTPUT_SIZE});
 
-nn.train(input, target, 1, 0.01, BATCH_SIZE, TrainType::Classification);
+    nn.train(input, target, 1, 0.01, BATCH_SIZE, TrainType::Classification);
 
-double total_ms = 0.0;
-
-for (int t = 0; t < TRIALS; t++) {
     auto start = std::chrono::high_resolution_clock::now();
 
     nn.train(input, target, EPOCHS, 0.01, BATCH_SIZE, TrainType::Classification);
 
     auto end = std::chrono::high_resolution_clock::now();
+
     double elapsed_ms = std::chrono::duration<double, std::milli>(end - start).count();
-    std::cout << "Trial " << t << ": " << elapsed_ms << " ms\n";
-    total_ms += elapsed_ms;
+
+    std::cout << "Average: " << elapsed_ms / EPOCHS << " ms\n";
 }
 
-std::cout << "Average: " << (total_ms / TRIALS) << " ms\n";
+int main() {
+    std::vector<std::thread> threads;
 
-return 0;
+    for (int i = 0; i < THREADS_AMOUT; ++i) {
+        threads.emplace_back([i](){ start_benchmark(i); });
+    }
+
+    for (std::thread& t : threads) {
+        t.join();
+    }
+
+    return 0;
+}
 ```
 
-### results (average over 100 loops):
+### results:
 
 <table>
   <thead>
@@ -147,17 +160,17 @@ return 0;
   <tbody>
     <tr>
       <td>No Flags (PS)</td>
-      <td>1,566.14</td>
+      <td>1853.26</td>
       <td>Default compilation, unoptimized</td>
     </tr>
     <tr>
       <td>Flags (PS)</td>
-      <td>356.24</td>
+      <td>512.315</td>
       <td>-O3 -march=native -ffast-math -DNDEBUG</td>
     </tr>
     <tr>
       <td>Flags (WSL)</td>
-      <td>117.27</td>
+      <td>99.8907</td>
       <td>Optimized on WSL, faster CPU execution</td>
     </tr>
   </tbody>
@@ -177,7 +190,7 @@ return 0;
 
 **Compiler:** g++ 15.2.0
 
-### flags used for fastest training (in training dir)
+### flags used for fastest training
 
 #### PS:
 
@@ -188,5 +201,5 @@ g++ -O3 -march=native -DNDEBUG -funroll-loops -ffast-math main.cpp -o main
 #### WSL:
 
 ```
-nvcc -O3 -use_fast_math -Xcompiler "-fopenmp -march=native -DNDEBUG" main.cpp -o main -lcublas
+nvcc -O3 -use_fast_math -Xcompiler "-fopenmp -march=native -DNDEBUG" main.cpp -o main
 ```
