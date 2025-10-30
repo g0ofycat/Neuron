@@ -170,7 +170,7 @@ int main() {
     </tr>
     <tr>
       <td>Flags (WSL)</td>
-      <td>99.8907</td>
+      <td>114.599</td>
       <td>Optimized on WSL, faster CPU execution</td>
     </tr>
   </tbody>
@@ -201,5 +201,5 @@ g++ -O3 -march=native -DNDEBUG -funroll-loops -ffast-math main.cpp -o main
 #### WSL:
 
 ```
-nvcc -O3 -use_fast_math -Xcompiler "-fopenmp -march=native -DNDEBUG" main.cpp -o main
+hipcc -O3 -ffast-math -funroll-loops -march=native -std=c++17 -x c++ -fopenmp -o main main.cpp -lhipblas
 ```
